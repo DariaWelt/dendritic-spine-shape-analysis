@@ -1,33 +1,38 @@
 import matplotlib.pyplot as plt
-from spine_clusterization import DBSCANSpineClusterizer, KMeansSpineClusterizer, ManualSpineClusterizer
+
+from spine_analysis.clusterization.dbscan_clusterizer import DBSCANSpineClusterizer
+from spine_analysis.clusterization.kmeans_clusterizer import KMeansSpineClusterizer
+from spine_analysis.clusterization.loaded_clusterizer import ManualSpineClusterizer
+from spine_analysis.mesh.utils import load_spine_meshes
+from spine_analysis.shape_metric.io_metric import SpineMetricDataset
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
-from spine_metrics import SpineMetricDataset, save_metrics, load_metrics
 import numpy as np
 from scipy.special import kl_div
-from notebook_widgets import create_dir, load_spine_meshes
-import itertools
+from notebook_widgets import create_dir
 
 
-metric_names = ["OldChordDistribution", "OpenAngle", "CVD", "AverageDistance",
+metric_names = [ "OpenAngle", "CVD", "AverageDistance",
                 "Length", "Area", "Volume", "ConvexHullVolume", "ConvexHullRatio"]
 
+folder = '0.025-0.025-0.1-dataset'
 # load meshes
-full_mesh = Polyhedron_3("output/image1/surface_mesh.off")
-spine_meshes = load_spine_meshes()
+full_mesh = Polyhedron_3(f"{folder}/3_full_res (1)/surface_mesh.off")
+spine_meshes = load_spine_meshes(folder_path=folder)
 
 every_spine_metrics = SpineMetricDataset()
 every_spine_metrics.calculate_metrics(spine_meshes, metric_names)
-create_dir("output/clustering")
-save_metrics(every_spine_metrics, "output/clustering/metrics.csv")
+output_dir = "output/clustering"
+create_dir(output_dir)
+every_spine_metrics.export_to_csv(f"{output_dir}/metrics.csv")
 
-every_spine_metrics = load_metrics("output/clustering/metrics.csv")
+every_spine_metrics = SpineMetricDataset.load_metrics(f"{output_dir}/metrics.csv")
 every_spine_metrics.standardize()
 
 every_spine_metrics.standardize()
 
-index_subsets = [[0], [1, 2, 3, 4, 5, 6, 7, 8]]
-# index_subsets = [[0]]
-# index_subsets = [[1, 2, 3, 4, 5, 6, 7, 8]]
+#index_subsets = [list(range(8))]
+#index_subsets = [[0]]
+index_subsets = [[1, 2, 3, 4, 5, 6, 7]]
 
 # clusterizers
 all_clusterizers = []
