@@ -5,15 +5,22 @@ from ipywidgets import widgets
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from CGAL.CGAL_Kernel import Vector_3, Point_3
 from typing import List, Tuple, Dict
+
+from spine_analysis.clusterization.clusterizer_core import SpineClusterizer
+from spine_analysis.clusterization.dbscan_clusterizer import DBSCANSpineClusterizer
+from spine_analysis.clusterization.kmeans_clusterizer import KMeansSpineClusterizer
+from spine_analysis.mesh.utils import _mesh_to_v_f, V_F
+from spine_analysis.shape_metric.float_metric import FloatSpineMetric
+from spine_analysis.shape_metric.histogram_metric import HistogramSpineMetric
+from spine_analysis.shape_metric.io_metric import SpineMetricDataset
+from spine_analysis.shape_metric.metric_core import SpineMetric
+from spine_analysis.shape_metric.utils import calculate_metrics
 from spine_segmentation import point_2_list, list_2_point, hash_point, \
     Segmentation, segmentation_by_distance, local_threshold_3d,\
     spines_to_segmentation, correct_segmentation, get_spine_meshes
 import meshplot as mp
 from IPython.display import display
-from spine_metrics import SpineMetric, SpineMetricDataset, calculate_metrics, \
-    get_metric_class, HistogramSpineMetric, FloatSpineMetric
 from scipy.ndimage.measurements import label
-from spine_clusterization import SpineClusterizer, KMeansSpineClusterizer, DBSCANSpineClusterizer
 from pathlib import Path
 import os
 
@@ -26,30 +33,6 @@ YELLOW = (1, 0.8, 0)
 GRAY = (0.69, 0.69, 0.69)
 DARK_GRAY = (0.30, 0.30, 0.30)
 
-V_F = Tuple[np.ndarray, np.ndarray]
-
-
-def _mesh_to_v_f(mesh: Polyhedron_3) -> V_F:
-    vertices = np.ndarray((mesh.size_of_vertices(), 3))
-    for i, vertex in enumerate(mesh.vertices()):
-        vertex.set_id(i)
-        vertices[i, :] = point_2_list(vertex.point())
-
-    facets = np.ndarray((mesh.size_of_facets(), 3)).astype("uint")
-    for i, facet in enumerate(mesh.facets()):
-        circulator = facet.facet_begin()
-        j = 0
-        begin = facet.facet_begin()
-        while circulator.hasNext():
-            halfedge = circulator.next()
-            v = halfedge.vertex()
-            facets[i, j] = (v.id())
-            j += 1
-            # check for end of loop
-            if circulator == begin or j == 3:
-                break
-    return vertices, facets
-
 
 def create_dir(dir_name: str) -> None:
     try:
@@ -57,47 +40,6 @@ def create_dir(dir_name: str) -> None:
     except OSError as error:
         pass
 
-
-def load_spine_meshes(folder_path: str = "output",
-                      spine_file_pattern: str = "**/spine_*.off") -> Dict[str, Polyhedron_3]:
-    output = {}
-    path = Path(folder_path)
-    spine_names = list(path.glob(spine_file_pattern))
-    for spine_name in spine_names:
-        output[str(spine_name)] = Polyhedron_3(str(spine_name))
-    return output
-
-
-def preprocess_meshes(spine_meshes: Dict[str, Polyhedron_3]) -> Dict[str, V_F]:
-    output = {}
-    for (spine_name, spine_mesh) in spine_meshes.items():
-        output[spine_name] = _mesh_to_v_f(spine_mesh)
-    return output
-
-
-def show_3d_mesh(mesh: Polyhedron_3) -> None:
-    vertices, facets = _mesh_to_v_f(mesh)
-    mp.plot(vertices, facets)
-    # mp.plot(vertices, facets, shading={"wireframe": True})
-
-
-def show_line_set(lines: List[Tuple[Point_3, Point_3]], mesh) -> None:
-    # make vertices and facets
-    vertices = np.ndarray((len(lines) * 2, 3))
-    facets = np.ndarray((len(lines), 3)).astype("uint")
-    for i, line in enumerate(lines):
-        vertices[2 * i, :] = point_2_list(line[0])
-        vertices[2 * i + 1, :] = point_2_list(line[1])
-
-        facets[i, 0] = 2 * i
-        facets[i, 1] = 2 * i + 1
-        facets[i, 2] = 2 * i
-
-    # render
-    plot = mp.plot(vertices, facets, shading={"wireframe": True})
-    v, f = _mesh_to_v_f(mesh)
-    # plot.add_lines(v[f[:, 0]], v[f[:, 1]], shading={"line_color": "gray"})
-    plot.add_mesh(*_mesh_to_v_f(mesh), shading={"wireframe": True})
 
 
 def _show_image(ax, image, mask=None, mask_opacity=0.5,
@@ -833,7 +775,7 @@ def cluster_metric_distribution_widget(clusterizer: SpineClusterizer,
     metric_distributions = []
     for metric_name in metrics.metric_names:
         distribution_graph = widgets.Output()
-        metric_class = get_metric_class(metric_name)
+        metric_class = SpineMetric.get_metric_class(metric_name)
         with distribution_graph:
             data = []
             for i, cluster in enumerate(clusterizer.get_clusters()):
