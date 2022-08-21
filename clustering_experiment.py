@@ -11,7 +11,7 @@ from scipy.special import kl_div
 from notebook_widgets import create_dir
 
 
-metric_names = [ "OpenAngle", "CVD", "AverageDistance",
+metric_names = ["SphericalGarmonics", "OpenAngle", "CVD", "AverageDistance",
                 "Length", "Area", "Volume", "ConvexHullVolume", "ConvexHullRatio"]
 
 folder = '0.025-0.025-0.1-dataset'
@@ -21,7 +21,7 @@ spine_meshes = load_spine_meshes(folder_path=folder)
 
 every_spine_metrics = SpineMetricDataset()
 every_spine_metrics.calculate_metrics(spine_meshes, metric_names)
-output_dir = "output/clustering"
+output_dir = "output/clustering_normalized"
 create_dir(output_dir)
 every_spine_metrics.export_to_csv(f"{output_dir}/metrics.csv")
 
@@ -32,7 +32,7 @@ every_spine_metrics.standardize()
 
 #index_subsets = [list(range(8))]
 #index_subsets = [[0]]
-index_subsets = [[1, 2, 3, 4, 5, 6, 7]]
+index_subsets = [[1, 2, 3, 4, 5, 6, 8]]
 
 # clusterizers
 all_clusterizers = []
@@ -41,18 +41,18 @@ all_clusterizers = []
 # for (name, metric) in zip(["euclidean", "kl_div"],
 #                           ["euclidean", lambda x, y: np.sum(kl_div(x, y))]):
 for i in range(100):
-    eps = 0.1 * (i + 1)
-    all_clusterizers.append(("DBSCAN_eucl", f"e={eps:.2f}", eps,
-                             DBSCANSpineClusterizer(metric="euclidean", eps=eps)))
+    eps = 0.01 * (i + 1) #pow(10,(i+1))
+    all_clusterizers.append(("DBSCAN_l1", f"e={0.01*(i+1)})", eps,
+                             DBSCANSpineClusterizer(metric="l1", eps=eps)))
 for i in range(100):
     eps = 0.1 * (i + 1)
     all_clusterizers.append(("DBSCAN_kldiv", f"e={eps:.2f}", eps,
                              DBSCANSpineClusterizer(metric=lambda x, y: np.sum(kl_div(x, y)), eps=eps)))
 
-# kmeans
+#kmeans
 for num_of_clusters in range(2, 30):
-    all_clusterizers.append(("KMeans", f"n={num_of_clusters}", num_of_clusters,
-                             KMeansSpineClusterizer(num_of_clusters=num_of_clusters)))
+    all_clusterizers.append(("KMeans_l1", f"n={num_of_clusters}", num_of_clusters,
+                             KMeansSpineClusterizer(num_of_clusters=num_of_clusters, metric="l1")))
 
 # all possible metric combinations
 # for L in range(1, len(metric_names) + 1):
@@ -61,11 +61,11 @@ for index_subset in index_subsets:
     reduced_metric_names = [metric_names[i] for i in index_subset]
     reduced_metrics = every_spine_metrics.get_metrics_subset(reduced_metric_names)
 
-    base_save_dir = f"output/clustering/{str(reduced_metric_names)}"
+    base_save_dir = f"{output_dir}/{str(reduced_metric_names)}"
     create_dir(base_save_dir)
 
-    scores = {"KMeans": ([], []), "DBSCAN_eucl": ([], []),
-              "DBSCAN_kldiv": ([], [])}
+    scores = {"KMeans": ([], []), "KMeans_l1": ([], []),
+              "DBSCAN_eucl": ([], []), "DBSCAN_l1": ([], [])}
 
     for (clusterizer_name, param_string, param_value, clusterizer) in all_clusterizers:
         save_dir = f"{base_save_dir}/{clusterizer_name}"
@@ -89,5 +89,6 @@ for index_subset in index_subsets:
         plt.plot(scores[clusterizer_name][0], scores[clusterizer_name][1])
         plt.title(clusterizer_name)
         save_dir = f"{base_save_dir}/{clusterizer_name}"
+        create_dir(save_dir)
         plt.savefig(f"{save_dir}/score.png")
         plt.clf()
