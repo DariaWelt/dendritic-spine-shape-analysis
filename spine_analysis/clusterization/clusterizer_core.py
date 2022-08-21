@@ -69,12 +69,10 @@ class SpineClusterizer(ABC):
 
     def score(self) -> float:
         # TODO: change nan to something sensical
-        labels = self.get_labels()
         if self.num_of_clusters < 2 or self.sample_size - 1 < self.num_of_clusters:
             return float("nan")
         labels = self.get_labels()
         return silhouette_score(self._data, labels, metric=self.metric)
-        # return silhouette_score(self._data, labels, metric="euclidean")
 
     @abstractmethod
     def _fit(self, data: np.array) -> object:
@@ -110,7 +108,13 @@ class SpineClusterizer(ABC):
 
     def save(self, filename: str) -> None:
         with open(filename, "w") as file:
-            json.dump({"cluster_masks": self.cluster_masks}, file)
+            clusters = self.get_clusters()
+            output = {
+                "groups": {
+                    f"cluster_{i}": clusters[i] for i in range(len(clusters))},
+                "samples": [clusters[i][j] for i in range(len(clusters)) for j in range(len(clusters[i]))]
+            }
+            json.dump(output, file)
 
     def get_representative_samples(self, cluster_index: int,
                                    num_of_samples: int = 4,
