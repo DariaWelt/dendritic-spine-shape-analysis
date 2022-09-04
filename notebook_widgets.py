@@ -5,22 +5,26 @@ from ipywidgets import widgets
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from CGAL.CGAL_Kernel import Vector_3, Point_3
 from typing import List, Tuple, Dict, Set, Iterable, Callable
-from spine_fitter import SpineGrouping
+
+from spine_analysis.mesh.utils import MeshDataset, LineSet, preprocess_meshes, _mesh_to_v_f, polylines_to_line_set
+from spine_analysis.mesh.vizualization import _add_line_set_to_viewer, _add_mesh_to_viewer_as_wireframe
+from spine_analysis.shape_metric import OldChordDistributionSpineMetric, HistogramSpineMetric, FloatSpineMetric, \
+    SpineMetric
+from spine_analysis.shape_metric.io_metric import SpineMetricDataset
+from spine_analysis.shape_metric.utils import calculate_metrics
+from spine_analysis.spine.grouping import SpineGrouping
 from spine_segmentation import point_2_list, list_2_point, hash_point, \
     Segmentation, segmentation_by_distance, local_threshold_3d,\
     spines_to_segmentation, correct_segmentation, get_spine_meshes, apply_scale
 import meshplot as mp
 from IPython.display import display
-from spine_metrics import SpineMetric, SpineMetricDataset, calculate_metrics, \
-    get_metric_class, HistogramSpineMetric, FloatSpineMetric, MeshDataset, LineSet, \
-    OldChordDistributionSpineMetric
 from scipy.ndimage.measurements import label
-from spine_clusterization import SpineClusterizer, KMeansSpineClusterizer, DBSCANSpineClusterizer
+from spine_analysis.clusterization import SpineClusterizer, KMeansSpineClusterizer, DBSCANSpineClusterizer
 from pathlib import Path
 import os
 from sklearn.linear_model import LinearRegression
 from functools import cmp_to_key
-from spine_clusterization import ks_test
+from spine_analysis.clusterization.utils import ks_test
 from CGAL.CGAL_Polygon_mesh_processing import Polylines
 from CGAL.CGAL_Surface_mesh_skeletonization import surface_mesh_skeletonization
 
@@ -114,87 +118,11 @@ class SpineMeshDataset:
         self.dendrite_v_f = preprocess_meshes(self.dendrite_meshes)
 
 
-def _mesh_to_v_f(mesh: Polyhedron_3) -> V_F:
-    vertices = np.ndarray((mesh.size_of_vertices(), 3))
-    for i, vertex in enumerate(mesh.vertices()):
-        vertex.set_id(i)
-        vertices[i, :] = point_2_list(vertex.point())
-
-    facets = np.ndarray((mesh.size_of_facets(), 3)).astype("uint")
-    for i, facet in enumerate(mesh.facets()):
-        circulator = facet.facet_begin()
-        j = 0
-        begin = facet.facet_begin()
-        while circulator.hasNext():
-            halfedge = circulator.next()
-            v = halfedge.vertex()
-            facets[i, j] = (v.id())
-            j += 1
-            # check for end of loop
-            if circulator == begin or j == 3:
-                break
-    return vertices, facets
-
-
 def create_dir(dir_name: str) -> None:
     try:
         os.mkdir(dir_name)
     except OSError as error:
         pass
-
-
-def preprocess_meshes(spine_meshes: MeshDataset) -> Dict[str, V_F]:
-    output = {}
-    for (spine_name, spine_mesh) in spine_meshes.items():
-        output[spine_name] = _mesh_to_v_f(spine_mesh)
-    return output
-
-
-def show_3d_mesh(mesh: Polyhedron_3, scale: Tuple[float, float, float] = (1, 1, 1)) -> None:
-    shown_mesh = apply_scale(mesh, scale)
-    v, f = _mesh_to_v_f(shown_mesh)
-    mp.plot(v, f)
-
-
-def polylines_to_line_set(polylines: Polylines) -> LineSet:
-    output = []
-    for line in polylines:
-        for i in range(len(line) - 1):
-            output.append((line[i], line[i + 1]))
-    return output
-
-
-def show_polylines(polylines: Polylines, mesh: Polyhedron_3 = None) -> None:
-    show_line_set(polylines_to_line_set(polylines), mesh)
-
-
-def _add_line_set_to_viewer(viewer: mp.Viewer, lines: LineSet) -> None:
-    viewer.add_lines(np.array([point_2_list(line[0]) for line in lines]),
-                     np.array([point_2_list(line[1]) for line in lines]),
-                     shading={"line_color": "red"})
-
-
-def _add_mesh_to_viewer_as_wireframe(viewer: mp.Viewer, mesh_v_f: V_F) -> None:
-    (v, f) = mesh_v_f
-    starts = []
-    ends = []
-    for facet in f:
-        starts.append(v[facet[0]])
-        starts.append(v[facet[1]])
-        starts.append(v[facet[2]])
-        ends.append(v[facet[1]])
-        ends.append(v[facet[2]])
-        ends.append(v[facet[0]])
-    viewer.add_lines(np.array(starts), np.array(ends),
-                     shading={"line_color": "gray"})
-
-
-def show_line_set(lines: LineSet, mesh: Polyhedron_3 = None) -> None:
-    view = mp.Viewer({})
-    _add_line_set_to_viewer(view, lines)
-    if mesh:
-        _add_mesh_to_viewer_as_wireframe(view, mesh)
-    display(view._renderer)
 
 
 def _show_image(ax, image, mask=None, mask_opacity=0.5,
@@ -1217,7 +1145,8 @@ def consensus_widget(groupings: List[SpineGrouping]) -> widgets.Widget:
             # button.layout.width = "10px"
             # row.append(button)
 
-    return widgets.GridBox(grid_items, layout=widgets.Layout(grid_template_columns=f"repeat({len(groupings) + 1}, 30px)"))
+    return widgets.GridBox(grid_items,
+                           layout=widgets.Layout(grid_template_columns=f"repeat({len(groupings) + 1}, 30px)"))
 
 
 def spine_dataset_view_widget(spine_dataset: SpineMeshDataset,
@@ -1307,6 +1236,7 @@ def view_skeleton_widget(scaled_spine_dataset: SpineMeshDataset) -> widgets.Widg
     dendrite_names_dropdown = widgets.Dropdown(options=names, description="Dendrite:")
     
     return widgets.interactive(show_dendrite_by_name, dendrite_name=dendrite_names_dropdown)
+
 
 def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDataset,
                             metrics_dataset: SpineMetricDataset, all_metrics_dataset: SpineMetricDataset,
