@@ -7,9 +7,12 @@ from spine_analysis.clusterization.clusterizer_core import SKLearnSpineClusteriz
 
 
 class KMeansSpineClusterizer(SKLearnSpineClusterizer):
+    _num_of_clusters: int
+
     def __init__(self, num_of_clusters: int, pca_dim: int = -1, metric: Union[str, Callable] = "euclidean"):
         super().__init__(pca_dim=pca_dim, metric=metric)
-        self.num_of_clusters = num_of_clusters
+        self._num_of_clusters = num_of_clusters
 
     def _sklearn_fit(self, data: np.array) -> object:
-        return KMeans(n_clusters=self.num_of_clusters, random_state=0).fit(data)
+        self._clusterizer = KMeans(n_clusters=self._num_of_clusters, random_state=0)
+        return self._clusterizer.fit(data)

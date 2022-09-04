@@ -1,5 +1,6 @@
 import math
 from abc import abstractmethod
+from random import Random
 from typing import List, Tuple
 
 import numpy as np
@@ -10,6 +11,7 @@ from CGAL.CGAL_AABB_tree import AABB_tree_Polyhedron_3_Facet_handle
 from CGAL.CGAL_Kernel import Point_3, Ray_3
 from CGAL.CGAL_Polygon_mesh_processing import area, face_area
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3, Polyhedron_3_Halfedge_handle, Polyhedron_3_Facet_handle
+from spine_analysis.mesh.utils import LineSet
 from spine_analysis.shape_metric.metric_core import SpineMetric
 from spine_analysis.shape_metric.utils import _point_2_vec, _vec_2_point, _calculate_facet_center
 
@@ -56,12 +58,13 @@ class HistogramSpineMetric(SpineMetric):
 
     def _calculate(self, spine_mesh: Polyhedron_3) -> np.array:
         self.distribution = self._calculate_distribution(spine_mesh)
-        return np.histogram(self.distribution, self.num_of_bins, density=True)[0]
+        return np.histogram(self.distribution, bins=self.num_of_bins,
+                            range=(0, 1), density=True)[0]
 
 
 class ChordDistributionSpineMetric(HistogramSpineMetric):
     num_of_chords: int
-    chords: List[Tuple[Point_3, Point_3]]
+    chords: LineSet
     chord_lengths: List[float]
     relative_max_facet_area: float
 

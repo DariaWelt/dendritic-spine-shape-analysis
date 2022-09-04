@@ -11,7 +11,7 @@ def ks_test(x: np.ndarray, y: np.ndarray) -> float:
         sum_y += y[i]
         output = max(output, abs(sum_x - sum_y))
 
-    return output / x.size
+    return output
 
 
 def chi_square_distance(x: np.ndarray, y: np.ndarray) -> float:

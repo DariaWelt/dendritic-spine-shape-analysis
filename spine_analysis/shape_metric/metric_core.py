@@ -12,8 +12,8 @@ class SpineMetric(ABC):
     name: str
     _value: Any
 
-    def __init__(self, spine_mesh: Polyhedron_3 = None) -> None:
-        self.name = type(self).__name__.replace("SpineMetric", "")
+    def __init__(self, spine_mesh: Polyhedron_3 = None, name: str = None) -> None:
+        self.name = type(self).__name__.replace("SpineMetric", "") if name is None else name
         if spine_mesh is not None:
             self.value = self._calculate(spine_mesh)
 
@@ -64,3 +64,12 @@ class SpineMetric(ABC):
     @staticmethod
     def get_metric_class(metric_name):
         return globals()[metric_name + "SpineMetric"]
+
+
+class ManualSpineMetric(SpineMetric):
+    def __init__(self, value: float, name: str) -> None:
+        super().__init__(name=name)
+        self.value = value
+
+    def _calculate(self, spine_mesh: Polyhedron_3) -> Any:
+        pass
