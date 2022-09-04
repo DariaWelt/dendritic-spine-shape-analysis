@@ -1,10 +1,11 @@
-from typing import List, Dict
+from typing import List, Dict, Any, Tuple
 
 import numpy as np
 
 from CGAL.CGAL_Kernel import Vector_3, Point_3
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3_Facet_handle, Polyhedron_3
 from spine_analysis.shape_metric.metric_core import SpineMetric
+
 
 
 def _vec_2_point(vector: Vector_3) -> Point_3:
@@ -31,7 +32,7 @@ def _calculate_facet_center(facet: Polyhedron_3_Facet_handle) -> Vector_3:
 
 
 def calculate_metrics(spine_mesh: Polyhedron_3,
-                      metric_names: List[str], params: List[Dict] = None) -> List[SpineMetric]:
+                      metric_names: List[str], params: List[Dict[str, Any]] = None) -> List[SpineMetric]:
     if params is None:
         params = [{}] * len(metric_names)
     return [create_metric_by_name(name, spine_mesh, **params[i]) for i, name in enumerate(metric_names)]
