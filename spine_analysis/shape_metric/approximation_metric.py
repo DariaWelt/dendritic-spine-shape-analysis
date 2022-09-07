@@ -2,9 +2,12 @@ from abc import ABC, abstractmethod
 from typing import List, Iterable
 
 import numpy as np
+import mahotas
 import meshplot as mp
 from ipywidgets import widgets
 from numpy import real
+from scipy.optimize import linear_sum_assignment
+from scipy.spatial import distance
 from scipy.special import sph_harm
 from sklearn.linear_model import LinearRegression
 
@@ -120,3 +123,30 @@ class SphericalGarmonicsSpineMetric(ApproximationSpineMetric):
     @classmethod
     def _show_distribution(cls, metrics: List["SpineMetric"]) -> None:
         pass
+
+
+# TODO: move from Approximation class
+class LightFieldZernikeMomentsSpineMetric(ApproximationSpineMetric):
+    def __init__(self, spine_mesh: Polyhedron_3 = None, radius: int = 1, view_points: int = 5):
+        sphere_iteratable = list(range(5, 355, 350 / (view_points-1)))
+        self._view_points = [(360 / (phi+1), theta, radius*2) for phi in sphere_iteratable for theta in sphere_iteratable]
+        self._zernike_radius = radius
+
+    def _calculate(self, spine_mesh: Polyhedron_3) -> Any:
+        self._value = []
+        for projection in self.get_projections(spine_mesh):
+            self._value.append(mahotas.features.zernike_moments(projection, self._zernike_radius))
+        return self._value
+    
+    def get_projections(self, spine_mesh: Polyhedron_3) -> np.ndarray:
+        return [np.zeros((10,10))]
+
+    @staticmethod
+    def distance(mesh_descr1: "LightFieldZernikeMomentsSpineMetric", mesh_descr2: "LightFieldZernikeMomentsSpineMetric") -> float:
+        cost_matrix = [[distance.cityblock(m1, m2) for m2 in mesh_descr2.value] for m1 in mesh_descr1.value]
+        m2_ind, m1_ind = linear_sum_assignment(cost_matrix)
+        return sum(distance.cityblock(m2_i, m1_i) for m2_i, m1_i in zip(m2_ind, m1_ind))
+
+    @staticmethod
+    def lf_module_distance(mesh1: Polyhedron_3, mesh2: Polyhedron_3) -> float:
+        return LightFieldDistance(verbose=True).get_distance(mesh1.vertices, mesh1.facets, mesh2.vertices, mesh2.facets)
