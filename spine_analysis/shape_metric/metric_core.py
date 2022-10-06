@@ -55,6 +55,14 @@ class SpineMetric(ABC):
     def _show_distribution(cls, metrics: List["SpineMetric"]) -> None:
         pass
 
+    def parse_value(self, value_str):
+        value: Any
+        if value_str[0] == "[":
+            value = np.fromstring(value_str[1:-1], dtype="float", sep=" ")
+        else:
+            value = float(value_str)
+        self.value = value
+
     def value_as_list(self) -> List[Any]:
         try:
             return [*self.value]

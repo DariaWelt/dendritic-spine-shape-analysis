@@ -1,6 +1,6 @@
 import copy
 import json
-from typing import List, Union, Callable
+from typing import List, Union, Callable, Dict, Set
 
 import numpy as np
 
@@ -9,17 +9,15 @@ from spine_analysis.shape_metric.io_metric import SpineMetricDataset
 
 
 class ManualSpineClusterizer(SpineClusterizer):
-    def __init__(self, cluster_masks: List[List[bool]],
-                 metric: Union[str, Callable] = "euclidean"):
+    def __init__(self, clusters: Dict[str, Set[str]], metric: Union[str, Callable] = "euclidean"):
         super().__init__(metric=metric)
-        self.cluster_masks = copy.deepcopy(cluster_masks)
-        self.num_of_clusters = len(cluster_masks)
+        self.grouping.groups = clusters
         if self.num_of_clusters > 0:
-            self.num_of_samples = len(cluster_masks[0])
+            self.num_of_samples = sum(len(group) for _, group in clusters.items())
         else:
             self.num_of_samples = 0
 
-    def _fit(self, data: np.array) -> object:
+    def _fit(self, data: np.array, names: List[str]) -> object:
         pass
 
     @staticmethod
@@ -27,12 +25,8 @@ class ManualSpineClusterizer(SpineClusterizer):
         masks = []
         with open(filename) as file:
             data = json.load(file)
-            if data.get("cluster_masks") is not None:
-                masks = data["cluster_masks"]
-            else:
-                for cluster_name, cluster_files in data["groups"].items():
-                    masks.append([spine_name in cluster_files for spine_name in dataset.spine_names])
-        clusterizer = ManualSpineClusterizer(masks)
+            clusterization = data["groups"]
+        clusterizer = ManualSpineClusterizer(clusterization)
         if len(masks) > 0:
             clusterizer.sample_size = dataset.num_of_spines
             clusterizer.dataset = dataset

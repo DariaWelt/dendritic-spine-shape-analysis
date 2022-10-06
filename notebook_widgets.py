@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import numpy as np
@@ -19,7 +21,8 @@ from spine_segmentation import point_2_list, list_2_point, hash_point, \
 import meshplot as mp
 from IPython.display import display
 from scipy.ndimage.measurements import label
-from spine_analysis.clusterization import SpineClusterizer, KMeansSpineClusterizer, DBSCANSpineClusterizer
+from spine_analysis.clusterization import SpineClusterizer, KMeansSpineClusterizer, DBSCANSpineClusterizer, \
+    KmeansKernelSpineClusterizer
 from pathlib import Path
 import os
 from sklearn.linear_model import LinearRegression
@@ -106,7 +109,7 @@ class SpineMeshDataset:
         spine_names = list(path.glob(spine_file_pattern))
         for spine_name in spine_names:
             spine_meshes[str(spine_name)] = Polyhedron_3(str(spine_name))
-            dendrite_path = str(spine_name.parent) + "\\surface_mesh.off"
+            dendrite_path = os.path.join(spine_name.parent, "surface_mesh.off")
             if dendrite_path not in dendrite_meshes:
                 dendrite_meshes[dendrite_path] = Polyhedron_3(dendrite_path)
             spine_to_dendrite[str(spine_name)] = dendrite_path
@@ -821,11 +824,12 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
     num_of_steps = int(np.ceil((param_max_value - param_min_value) / param_step))
     param_values = [np.clip(param_min_value + param_step * i,
                     param_min_value, param_max_value) for i in range(num_of_steps)]
-
+    clusterized = {}
     for (dim, dim_scores) in scores.items():
         for value in param_values:
             clusterizer = clusterizer_type(**{param_name: value}, **static_params, pca_dim=dim)
             clusterizer.fit(spine_metrics)
+            clusterized[value] = clusterizer
             dim_scores.append(score_function(clusterizer))
 
     peak = np.nanargmax(scores[pca_dim])
@@ -839,8 +843,9 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                                      continuous_update=False)
 
     def show_clusterization(param_value) -> None:
-        clusterizer = clusterizer_type(**{param_name: param_value}, **static_params, pca_dim=pca_dim)
-        clusterizer.fit(spine_metrics)
+        #clusterizer = clusterizer_type(**{param_name: param_value}, **static_params, pca_dim=pca_dim)
+        #clusterizer.fit(spine_metrics)
+        clusterizer = deepcopy(clusterized[param_value])
 
         score_graph = widgets.Output()
         with score_graph:
@@ -887,6 +892,25 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
     navigation_buttons = _make_navigation_widget(param_slider, param_step)
 
     return widgets.VBox([navigation_buttons, clusterization_result])
+
+
+def kernel_k_means_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
+                                                every_spine_metrics: SpineMetricDataset,
+                                                spine_dataset: SpineMeshDataset,
+                                                score_function: Callable[[SpineClusterizer], float],
+                                                min_num_of_clusters: int = 2,
+                                                max_num_of_clusters: int = 20,
+                                                metric="euclidean",
+                                                use_pca: bool = True,
+                                                classification: SpineGrouping = None,
+                                                filename_prefix: str = "") -> widgets.Widget:
+    return clustering_experiment_widget(spine_metrics, every_spine_metrics,
+                                        spine_dataset,
+                                        KmeansKernelSpineClusterizer,
+                                        widgets.IntSlider, "num_of_clusters",
+                                        min_num_of_clusters, max_num_of_clusters,
+                                        1, {"metric": metric}, score_function,
+                                        use_pca, classification, f"{filename_prefix}_kernel_kmeans")
 
 
 def k_means_clustering_experiment_widget(spine_metrics: SpineMetricDataset,

@@ -185,13 +185,8 @@ class SpineMetricDataset:
                 metrics = []
                 for metric_name in row.keys():
                     value_str = row[metric_name]
-                    value: Any
-                    if value_str[0] == "[":
-                        value = np.fromstring(value_str[1:-1], dtype="float", sep=" ")
-                    else:
-                        value = float(value_str)
                     metric = create_metric_by_name(metric_name)
-                    metric._value = value
+                    metric.parse_value(value_str)
                     metrics.append(metric)
                 output[spine_name] = metrics
         return SpineMetricDataset(output)
