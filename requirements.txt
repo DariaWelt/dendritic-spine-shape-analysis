@@ -36,7 +36,6 @@ scipy==1.7.1
 sqlite==3.36.0
 tifffile==2021.7.2
 tk==8.6.11
-mahotas==1.4.13 #pip
 light-field-distance #pip
 opencv
 numba==0.56.2

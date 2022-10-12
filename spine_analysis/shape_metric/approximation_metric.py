@@ -6,7 +6,6 @@ from typing import List, Iterable, Any, Tuple
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import mahotas
 import meshplot as mp
 from ipywidgets import widgets
 from lfd import LightFieldDistance
@@ -150,8 +149,7 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
     def _calculate(self, spine_mesh: Polyhedron_3) -> Any:
         self._value = []
         for projection in self.get_projections(spine_mesh):
-            self._value.append(mahotas.features.zernike_moments(projection, self._zernike_radius,
-                                                                degree=self._zernike_order).tolist())
+            self._value.append(self._calculate_moment(projection, degree=self._zernike_order).real.tolist())
         return self._value
 
     def _get_image(self, normal: list, polyline: Tuple[Point_3]):
@@ -254,26 +252,25 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         result = np.zeros(len(circle_mask), dtype=complex)
         Y, X = Y[circle_mask], X[circle_mask]
         computed = np.zeros(len(Y), dtype=complex)
-        n, l = 0, 0
-        for i, a in enumerate(zernike_moments):
-            vxy = self.zernike_poly(Y, X, n, l)
-            computed += a * vxy
-            if n > l:
-                l += 1
-            else:
-                n += 1
-                l = 0
-        computed = computed - min(computed) #/ (max(computed) - min(computed))
+        i = 0
+        n = 0
+        while i < len(zernike_moments):
+            for l in range(n + 1):
+                if (n - l) % 2 == 0:
+                    vxy = self.zernike_poly(Y, X, n, l)
+                    computed += zernike_moments[i] * vxy
+                    i += 1
+            n += 1
+        #computed = computed - min(computed) #/ (max(computed) - min(computed))
         result[circle_mask] = computed
         return result.reshape((image_size,)*2).real
 
-    def zernike_poly(Y, X, n, l):
-        l_negative = l < 0
+    def zernike_poly(self, Y, X, n, l):
         l = abs(l)
         if (n - l) % 2 == 1:
             return np.zeros(len(Y), dtype=complex)
         Rho, _, Phi = cart2polar(X, Y, np.zeros(len(X)))
-        multiplier = np.sin(l * Phi) if l_negative else np.cos(l * Phi)
+        multiplier = (1.*np.cos(Phi) + 1.j*np.sin(Phi)) ** l
         radial = np.sum([(-1.) ** m * factorial(n - m) /
                          (factorial(m) * factorial((n + l - 2 * m) // 2) * factorial((n - l - 2 * m) // 2)) *
                          np.power(Rho, n - 2 * m)
@@ -281,4 +278,23 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
                         axis=0)
         return radial * multiplier
 
+    def _calculate_moment(self, image: np.ndarray, degree: int = 8):
+        radius = image.shape[0] // 2
+        moments = []
+        Y, X = np.meshgrid(range(image.shape[0]), range(image.shape[1]))
+        Y, X = ((Y - radius) / radius).ravel(), ((X - radius) / radius).ravel()
+
+        circle_mask = (np.sqrt(X ** 2 + Y ** 2) <= 1)
+        Y, X = Y[circle_mask], X[circle_mask]
+
+        frac_center = np.array(image.ravel()[circle_mask], np.double)
+        frac_center /= frac_center.sum()
+
+        for n in range(degree + 1):
+            for l in range(n + 1):
+                if (n - l) % 2 == 0:
+                    vxy = self.zernike_poly(Y, X, n, l)
+                    moments.append(sum(frac_center * np.conjugate(vxy)) * (n + 1)/np.pi)
+
+        return np.array(moments)
 
