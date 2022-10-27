@@ -821,7 +821,7 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
     #     scores[pca_dim] = []
     #     pca_dim //= 2
 
-    num_of_steps = int(np.ceil((param_max_value - param_min_value) / param_step))
+    num_of_steps = int(np.ceil((param_max_value - param_min_value + 1) / param_step))
     param_values = [np.clip(param_min_value + param_step * i,
                     param_min_value, param_max_value) for i in range(num_of_steps)]
     clusterized = {}
@@ -829,15 +829,15 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
         for value in param_values:
             clusterizer = clusterizer_type(**{param_name: value}, **static_params, pca_dim=dim)
             clusterizer.fit(spine_metrics)
-            clusterized[value] = clusterizer
+            clusterized[value] = deepcopy(clusterizer)
             dim_scores.append(score_function(clusterizer))
 
     peak = np.nanargmax(scores[pca_dim])
 
     # reg = LinearRegression().fit(np.reshape(param_values, (-1, 1)), scores[2])
 
-    param_slider = param_slider_type(min=param_min_value,
-                                     max=param_max_value,
+    param_slider = param_slider_type(min=min(param_values),
+                                     max=max(param_values),
                                      value=param_values[peak],
                                      step=param_step,
                                      continuous_update=False)
@@ -959,16 +959,19 @@ def grouping_metric_distribution_widget(grouping: SpineGrouping,
         distribution_graph = widgets.Output()
         with distribution_graph:
             data = []
-            colors = grouping.colors
+            #colors = grouping.colors
             for label, cluster in grouping.groups.items():
                 cluster_metrics = metrics.get_spines_subset(cluster)
                 metric_column = cluster_metrics.column(metric.name)
-                data.append(metric.get_distribution(metric_column))
-                if issubclass(metric.__class__, HistogramSpineMetric):
-                    value = metric.get_distribution(metric_column)
-                    left_edges = [(int(label) - 1) + j / len(value) for j in range(len(value))]
-                    width = left_edges[1] - left_edges[0]
-                    plt.bar(left_edges, value, align='edge', width=width, color=colors[label])
+                if not issubclass(metric.__class__, FloatSpineMetric):
+                    metric._show_distribution(metric_column)
+                else:
+                    data.append(metric.get_distribution(metric_column))
+                #if issubclass(metric.__class__, HistogramSpineMetric):
+                    #value = metric.get_distribution(metric_column)
+                #    left_edges = [(int(label) - 1) + j / len(value) for j in range(len(value))]
+                #    width = left_edges[1] - left_edges[0]
+                #    plt.bar(left_edges, value, align='edge', width=width, color=colors[label])
             if issubclass(metric.__class__, FloatSpineMetric):
                 plt.boxplot(data)
             plt.title(metric.name)

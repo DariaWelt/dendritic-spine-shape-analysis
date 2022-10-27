@@ -7,6 +7,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import meshplot as mp
+import pointpats
 from ipywidgets import widgets
 from lfd import LightFieldDistance
 from numpy import real
@@ -23,7 +24,7 @@ from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from spine_analysis.mesh.utils import _mesh_to_v_f
 from spine_analysis.shape_metric.metric_core import SpineMetric
 from spine_analysis.shape_metric.utils import polar2cart, cart2polar, _calculate_junction_center, _vec_2_list, \
-    _point_2_list, calculate_surface_center
+    _point_2_list, calculate_surface_center, min_enclosing_circle, make_circle
 from spine_segmentation import point_2_list, list_2_point
 
 
@@ -149,7 +150,7 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
     def _calculate(self, spine_mesh: Polyhedron_3) -> Any:
         self._value = []
         for projection in self.get_projections(spine_mesh):
-            self._value.append(self._calculate_moment(projection, degree=self._zernike_order).real.tolist())
+            self._value.append(self._calculate_moment(projection, degree=self._zernike_order).tolist())
         return self._value
 
     def _get_image(self, normal: list, polyline: Tuple[Point_3]):
@@ -174,9 +175,17 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         rotation_matrix = np.matmul(np.array([[cos_ay, 0, sin_ay], [0, 1, 0], [-sin_ay, 0, cos_ay]]), rotation_matrix)
 
         contour = np.array([np.matmul(rotation_matrix, _point_2_list(p))[:-1] for p in polyline])
-        min_points = contour[..., 0].min(), contour[..., 1].min()
-        for i in [0, 1]:
-            contour[..., i] = (contour[..., i] - contour[..., i].min()) / (contour[..., i].max() - min_points[i]) * 199
+
+        try:
+            center, radius, *_ = pointpats.skyum(contour)
+        except Exception:
+            (x, y), radius = cv2.minEnclosingCircle(contour)
+            center = (x, y)
+        scale = 100 / radius
+        contour = np.matmul([[scale, 0], [0, scale]], contour.T).T
+        contour[:, 0] = contour[:, 0] - center[0] * scale + 100
+        contour[:, 1] = contour[:, 1] - center[1] * scale + 100
+
         contour = contour.astype(int)
         mask = np.zeros((200, 200))
         cv2.fillPoly(mask, pts=[contour], color=(255,255,255))
@@ -193,12 +202,10 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
             center = calculate_surface_center(spine_mesh)
             plane = Plane_3(normal[0], normal[1], normal[2], -np.dot(center, normal))
             slicer.slice(plane, sliced)
-            #p.add_mesh(np.array([point_2_list(plane.projection(Point_3(0, 1, 1))), point_2_list(plane.projection(Point_3(0, 1, -1))),
-            #          point_2_list(plane.projection(Point_3(-1, 0, 1)))]), np.array([[0,1,2]]))
             result.append(self._get_image(normal, sliced[sliced.size() // 2]))
             #ax[i // 2, i % 2].imshow(result[-1])
             #ax[i // 2, i % 2].set_title(f'view_point#{i}')
-        plt.savefig("projections.pdf", dpi=600)
+        #plt.savefig("projections.pdf", dpi=600)
         #plt.show()
         return result
 
@@ -209,9 +216,9 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
     @staticmethod
     def repr_distance(data1: np.ndarray, data2: np.ndarray):
         if data1.ndim != 2:
-            view_points = int(np.sqrt(data1.shape[0] / 25))
-            data1 = data1.reshape(view_points*view_points, 25)
-            data2 = data2.reshape(view_points * view_points, 25)
+            view_points_squared = 25
+            data1 = data1.reshape(view_points_squared, int(data1.shape[0]/view_points_squared))
+            data2 = data2.reshape(view_points_squared, int(data2.shape[0]/view_points_squared))
         cost_matrix = [[distance.cityblock(m1, m2) for m2 in data1] for m1 in data2]
         m2_ind, m1_ind = linear_sum_assignment(cost_matrix)
         return sum(distance.cityblock(data2[m2_i], data1[m1_i]) for m2_i, m1_i in zip(m2_ind, m1_ind))
@@ -223,15 +230,23 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
 
     @classmethod
     def get_distribution(cls, metrics: List["SpineMetric"]) -> np.ndarray:
-        pass
+        spikes_deskr = np.asarray([metric.value for metric in metrics])
+        return np.mean(spikes_deskr, 0)
 
     @classmethod
     def _show_distribution(cls, metrics: List["SpineMetric"]) -> None:
-        pass
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.boxplot(cls.get_distribution(metrics))
 
     def parse_value(self, value_str):
         value = ast.literal_eval(value_str)
         self.value = value
+
+    def value_as_lists(self) -> List[Any]:
+        return [*self.value]
+
+    def clasterization_preprocess(self, zernike_postprocess='real', **kwargs) -> Any:
+        self.value = [[m.real if zernike_postprocess == 'real' else abs(m) for m in moments] for moments in self._value]
 
     def show(self, image_size: int = 256) -> widgets.Widget:
         out = widgets.Output()
@@ -243,7 +258,8 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
             #plt.show()
         return out
 
-    def _recover_projection(self, zernike_moments: List[float], image_size: int):
+    @staticmethod
+    def _recover_projection(zernike_moments: List[float], image_size: int):
         radius = image_size // 2
         Y, X = np.meshgrid(range(image_size), range(image_size))
         Y, X = ((Y - radius)/radius).ravel(), ((X - radius)/radius).ravel()
@@ -257,7 +273,7 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         while i < len(zernike_moments):
             for l in range(n + 1):
                 if (n - l) % 2 == 0:
-                    vxy = self.zernike_poly(Y, X, n, l)
+                    vxy = LightFieldZernikeMomentsSpineMetric.zernike_poly(Y, X, n, l)
                     computed += zernike_moments[i] * vxy
                     i += 1
             n += 1
@@ -265,7 +281,8 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         result[circle_mask] = computed
         return result.reshape((image_size,)*2).real
 
-    def zernike_poly(self, Y, X, n, l):
+    @staticmethod
+    def zernike_poly(Y, X, n, l):
         l = abs(l)
         if (n - l) % 2 == 1:
             return np.zeros(len(Y), dtype=complex)

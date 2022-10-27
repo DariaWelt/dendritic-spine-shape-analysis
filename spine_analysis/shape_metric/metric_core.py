@@ -36,6 +36,9 @@ class SpineMetric(ABC):
     def show(self) -> widgets.Widget:
         return widgets.Label(str(self.value))
 
+    def clasterization_preprocess(self, **kwargs) -> Any:
+        pass
+
     @classmethod
     @abstractmethod
     def get_distribution(cls, metrics: List["SpineMetric"]) -> np.ndarray:
@@ -63,11 +66,11 @@ class SpineMetric(ABC):
             value = float(value_str)
         self.value = value
 
-    def value_as_list(self) -> List[Any]:
+    def value_as_lists(self) -> List[Any]:
         try:
-            return [*self.value]
+            return [[*self.value]]
         except TypeError:
-            return [self.value]
+            return [[self.value]]
 
     @staticmethod
     def get_metric_class(metric_name):
@@ -80,4 +83,12 @@ class ManualSpineMetric(SpineMetric):
         self.value = value
 
     def _calculate(self, spine_mesh: Polyhedron_3) -> Any:
+        pass
+
+    @classmethod
+    def get_distribution(cls, metrics: List["SpineMetric"]) -> np.ndarray:
+        pass
+
+    @classmethod
+    def _show_distribution(cls, metrics: List["SpineMetric"]) -> None:
         pass

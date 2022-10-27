@@ -126,10 +126,14 @@ class SpineMetricDataset:
         output.standardize()
         return output
 
+    def clasterization_preprocess(self, **kwargs):
+        for spine_name in self.spine_names:
+            [metric.clasterization_preprocess(**kwargs) for metric in self.row(spine_name)]
+
     def row_as_array(self, spine_name: str) -> np.array:
-        data = []
+        data = np.array([])
         for spine_metric in self.row(spine_name):
-            data += spine_metric.value_as_list()
+            data = np.append(data, np.vstack(spine_metric.value_as_lists()))
         return np.asarray(data)
 
     def as_array(self) -> np.ndarray:
