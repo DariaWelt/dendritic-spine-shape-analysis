@@ -108,11 +108,11 @@ class SpineMeshDataset:
         path = Path(folder_path)
         spine_names = list(path.glob(spine_file_pattern))
         for spine_name in spine_names:
-            spine_meshes[str(spine_name)] = Polyhedron_3(str(spine_name))
-            dendrite_path = os.path.join(spine_name.parent, "surface_mesh.off")
+            spine_meshes[str(spine_name).replace('\\', '/')] = Polyhedron_3(str(spine_name).replace('\\', '/'))
+            dendrite_path = os.path.join(spine_name.parent, "surface_mesh.off").replace('\\', '/')
             if dendrite_path not in dendrite_meshes:
                 dendrite_meshes[dendrite_path] = Polyhedron_3(dendrite_path)
-            spine_to_dendrite[str(spine_name)] = dendrite_path
+            spine_to_dendrite[str(spine_name).replace('\\', '/')] = dendrite_path
         self.__init__(spine_meshes, dendrite_meshes, spine_to_dendrite)
         return self
 
@@ -991,6 +991,34 @@ def color_to_hex(color: Tuple[float, float, float, float]) -> str:
     b = [int(c * 255) for c in color]
     c = (b[0] << 16) + (b[1] << 8) + b[2]
     return "#" + f"{c:06x}"
+
+
+def clasters_spines_widget(meshes: SpineMeshDataset, clasterization: SpineGrouping) -> widgets.Widget:
+    clusters = []
+    spines = {}
+    for label, group in clasterization.groups.items():
+        spines[label] = list(group)
+        
+        def show_spine(label):
+            def inter_fun(spine_index: int):
+                name = spines[label][spine_index]
+                spine_viewer = make_viewer(*meshes.spine_v_f[name], width=200, height=200)
+                spine_viewer._renderer.layout = widgets.Layout(border="solid 1px")
+                print(name)
+                display(spine_viewer._renderer)
+                # display(SpinePreview(meshes.spine_meshes[name], meshes.spine_v_f[name],
+                #                  meshes.get_dendrite_v_f(name), [],
+                #                  name, clasterization.get_color(name)[:3]).widget)
+                return clasterization
+            return inter_fun
+
+        spine_index_slider = widgets.IntSlider(max=max(0, len(spines[label]) - 1))
+        navigation_buttons = _make_navigation_widget(spine_index_slider)
+
+        spine_classification = widgets.interactive(show_spine(label), spine_index=spine_index_slider)
+        clusters.append(widgets.HBox(children=[navigation_buttons, spine_classification]))
+        display(clusters[-1])
+    return None #widgets.VBox(clusters)
 
 
 def manual_classification_widget(meshes: SpineMeshDataset,

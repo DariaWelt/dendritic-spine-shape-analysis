@@ -7,25 +7,19 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import meshplot as mp
-import pointpats
 from ipywidgets import widgets
-from lfd import LightFieldDistance
 from numpy import real
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.validation import make_valid
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial import distance
 from scipy.special import sph_harm
-from sklearn.linear_model import LinearRegression
 
-from CGAL.CGAL_Kernel import Vector_3, Plane_3, Point_3
-from CGAL.CGAL_Point_set_3 import Point_set_3
-from CGAL.CGAL_Poisson_surface_reconstruction import poisson_surface_reconstruction
-from CGAL.CGAL_Polygon_mesh_processing import Polygon_mesh_slicer, Polylines
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from spine_analysis.mesh.utils import _mesh_to_v_f
 from spine_analysis.shape_metric.metric_core import SpineMetric
-from spine_analysis.shape_metric.utils import polar2cart, cart2polar, _calculate_junction_center, _vec_2_list, \
-    _point_2_list, calculate_surface_center, min_enclosing_circle, make_circle
-from spine_segmentation import point_2_list, list_2_point
+from spine_analysis.shape_metric.utils import polar2cart, cart2polar, _point_2_list, get_enclosing_circle
+from spine_segmentation import point_2_list
 
 
 class ApproximationSpineMetric(SpineMetric, ABC):
@@ -100,14 +94,6 @@ class SphericalGarmonicsSpineMetric(ApproximationSpineMetric):
         radiuses = np.array([[real(self.surface_value([t, p])) for t, p in zip(t_values, p_values)] for t_values, p_values in zip(T, P)])
         xyz = polar2cart(T, P, radiuses)
         return xyz[..., 0], xyz[..., 1], xyz[..., 2]
-        # normals = [self.surface_norm([t, p]) for t, p in tp]
-        # out: Point_set_3 = Point_set_3()
-        # out.add_normal_map()
-        # for p, n in zip(xyz, normals):
-        #     out.insert(list_2_point(p), Vector_3(n[0], n[1], n[2]))
-        # surface_poly = Polyhedron_3()
-        # poisson_surface_reconstruction(out, surface_poly)
-        # return surface_poly
 
     def _get_mesh_2(self):
         pass
@@ -152,8 +138,8 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         for projection in self.get_projections(spine_mesh):
             self._value.append(self._calculate_moment(projection, degree=self._zernike_order).tolist())
         return self._value
-
-    def _get_image(self, normal: list, polyline: Tuple[Point_3]):
+    
+    def _get_rotation(self, normal):
         # prepare rotation angle for coordinate transformation
         z_0 = [0, 0, 1]
         x, y = normal[0], normal[1]
@@ -169,22 +155,22 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         sin_ax, cos_ax = np.linalg.norm(np.cross(normal, z_0)) / norm, np.dot(normal, z_0) / norm
         if normal[1] > 0:
             sin_ax = -sin_ax
+        normal[0] = x
 
         # create transformation matrix
         rotation_matrix = np.array([[1, 0, 0], [0, cos_ax, -sin_ax], [0, sin_ax, cos_ax]])
         rotation_matrix = np.matmul(np.array([[cos_ay, 0, sin_ay], [0, 1, 0], [-sin_ay, 0, cos_ay]]), rotation_matrix)
+        return rotation_matrix
 
-        contour = np.array([np.matmul(rotation_matrix, _point_2_list(p))[:-1] for p in polyline])
+    def _get_image(self, poly_contour: Polygon):
+        contour = np.array(poly_contour.exterior.coords)
 
-        try:
-            center, radius, *_ = pointpats.skyum(contour)
-        except Exception:
-            (x, y), radius = cv2.minEnclosingCircle(contour)
-            center = (x, y)
+        cx, cy, radius = get_enclosing_circle(contour)
         scale = 100 / radius
+
         contour = np.matmul([[scale, 0], [0, scale]], contour.T).T
-        contour[:, 0] = contour[:, 0] - center[0] * scale + 100
-        contour[:, 1] = contour[:, 1] - center[1] * scale + 100
+        contour[:, 0] = contour[:, 0] - cx * scale + 100
+        contour[:, 1] = contour[:, 1] - cy * scale + 100
 
         contour = contour.astype(int)
         mask = np.zeros((200, 200))
@@ -193,25 +179,37 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
     
     def get_projections(self, spine_mesh: Polyhedron_3) -> Iterable[np.ndarray]:
         result = []
-        slicer = Polygon_mesh_slicer(spine_mesh)
         #mp.plot(*_mesh_to_v_f(spine_mesh))
         #fig, ax = plt.subplots(ncols=2, nrows=(len(self._view_points) + 1) // 2, figsize=(12, 6 * (len(self._view_points) + 1) // 2))
         for i in range(len(self._view_points)):
-            sliced = Polylines()
             normal = polar2cart(self._view_points[i, 0, ...], self._view_points[i, 1, ...], self._view_points[i, 2, ...])
-            center = calculate_surface_center(spine_mesh)
-            plane = Plane_3(normal[0], normal[1], normal[2], -np.dot(center, normal))
-            slicer.slice(plane, sliced)
-            result.append(self._get_image(normal, sliced[sliced.size() // 2]))
+            contour = self._get_contour(normal, spine_mesh)
+            result.append(self._get_image(contour))
             #ax[i // 2, i % 2].imshow(result[-1])
             #ax[i // 2, i % 2].set_title(f'view_point#{i}')
-        #plt.savefig("projections.pdf", dpi=600)
+        #plt.savefig("projectionsss.pdf", dpi=600)
         #plt.show()
         return result
+    
+    def _get_contour(self, normal, mesh: Polyhedron_3):
+        rotation_matrix = self._get_rotation(normal)
+        res_poly = MultiPolygon()
+        facet_points = map(lambda facet: np.array([_point_2_list(h.vertex().point()) for h in [facet.halfedge(), facet.halfedge().next(), facet.halfedge().next().next()]]), mesh.facets())
+        facet_points = map(lambda points: np.matmul(points, rotation_matrix)[...,[0,1]], facet_points)
+        
+        for facet_2d in facet_points:
+            res_poly = res_poly.union(Polygon(facet_2d).buffer(0))
+            if type(res_poly) is Polygon:
+                res_poly = MultiPolygon([res_poly])
+            res_poly = make_valid(res_poly)
+        
+        res_poly = max(res_poly.geoms, key=lambda a: a.area)
+        return res_poly
+
 
     @staticmethod
     def distance(mesh_descr1: "LightFieldZernikeMomentsSpineMetric", mesh_descr2: "LightFieldZernikeMomentsSpineMetric") -> float:
-        return LightFieldZernikeMomentsSpineMetric.repr_distance(mesh_descr1._value, mesh_descr2._value)
+        return LightFieldZernikeMomentsSpineMetric.repr_distance(np.array(mesh_descr1._value), np.array(mesh_descr2._value))
 
     @staticmethod
     def repr_distance(data1: np.ndarray, data2: np.ndarray):
@@ -219,14 +217,9 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
             view_points_squared = 25
             data1 = data1.reshape(view_points_squared, int(data1.shape[0]/view_points_squared))
             data2 = data2.reshape(view_points_squared, int(data2.shape[0]/view_points_squared))
-        cost_matrix = [[distance.cityblock(m1, m2) for m2 in data1] for m1 in data2]
+        cost_matrix = [[distance.cityblock(m1, m2) if not(np.isnan(m2).any() or np.isnan(m1).any()) else 0 for m2 in data1] for m1 in data2]
         m2_ind, m1_ind = linear_sum_assignment(cost_matrix)
         return sum(distance.cityblock(data2[m2_i], data1[m1_i]) for m2_i, m1_i in zip(m2_ind, m1_ind))
-
-    @staticmethod
-    def lf_module_distance(mesh1: Polyhedron_3, mesh2: Polyhedron_3) -> float:
-        return LightFieldDistance(verbose=True).get_distance(mesh1.vertices(), mesh1.facets(),
-                                                             mesh2.vertices(), mesh2.facets())
 
     @classmethod
     def get_distribution(cls, metrics: List["SpineMetric"]) -> np.ndarray:
