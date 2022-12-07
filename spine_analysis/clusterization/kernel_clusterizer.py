@@ -3,6 +3,7 @@ from abc import abstractmethod, ABC
 from typing import List, Union, Callable
 
 import numpy as np
+from sklearn.cluster import SpectralClustering
 
 from spine_analysis.clusterization import SpineClusterizer
 
@@ -81,3 +82,15 @@ class KmeansKernelSpineClusterizer(KernelSpineClusterizer):
     @staticmethod
     def get_random_centroids(data: np.ndarray, num_clusters: int) -> List[int]:
         return random.sample(list(range(len(data))), num_clusters)
+
+
+class SpectralSpineClusterizer(KernelSpineClusterizer):
+    def __init__(self, num_of_clusters: int, pca_dim: int = -1, metric: Union[str, Callable] = "euclidean"):
+        super().__init__(pca_dim=pca_dim, metric=metric)
+        self._num_of_clusters = num_of_clusters
+
+    def _kernel_fit(self, data: np.ndarray, kernel: Callable, initialization: Union[str, List] = None) -> List[int]:
+        clusterizer = SpectralClustering(self._num_of_clusters, affinity='precomputed')
+        kernel_matrix = np.array([[kernel(x_i, x_j) for x_i in data] for x_j in data])
+        clustering = clusterizer.fit(kernel_matrix)
+        return clustering.labels_

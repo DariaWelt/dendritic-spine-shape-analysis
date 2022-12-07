@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from spine_analysis.clusterization import KmeansKernelSpineClusterizer
+from spine_analysis.clusterization.hierarchial_clusterizer import HierarchicalSpineClusterizer
+from spine_analysis.clusterization.kernel_clusterizer import SpectralSpineClusterizer
 from test.test_base import TestCaseBase
 
 
@@ -38,11 +40,27 @@ class ClusterizationCase(TestCaseBase):
                                  data=np.array([[0, 0], [1, 1], [-1, 1], [-0.5, -0.5], [0.5, -1],
                                                 [13, 12], [-13, 13], [-13, -14], [12, -13], [-14, -14]]),
                                  clusters_num=2,
-                                 centroids=[7, 9],
-                                 metric=lambda x, y: np.linalg.norm(x**2 + y**2),
+                                 centroids=[7, 8],
+                                 metric=lambda x, y: sum(x**2 - y**2),
                                  gt=np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1]))
                          ], ids=str)
 def test_kernel_kmeans(case: ClusterizationCase) -> None:
     clusterizer = KmeansKernelSpineClusterizer(case.clusters_num)
     labels = clusterizer._kernel_fit(case.X, case.metric, initialization=case.centroids)
+    case.assert_equal(labels)
+
+
+@pytest.mark.parametrize('case', [
+                             ClusterizationCase(
+                                 name='2d_gaussian',
+                                 data=np.array([[0, 0], [1, 1], [-1, 1], [-0.5, -0.5], [0.5, -1],
+                                                [13, 12], [-13, 13], [-13, -14], [12, -13], [-14, -14]]),
+                                 clusters_num=2,
+                                 centroids=[7, 9],
+                                 metric=lambda x, y: sum(x**2 - y**2),
+                                 gt=np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1]))
+                         ], ids=str)
+def test_spectral_clustering(case: ClusterizationCase) -> None:
+    clusterizer = HierarchicalSpineClusterizer(case.clusters_num)
+    labels = clusterizer._kernel_fit(case.X, case.metric, None)
     case.assert_equal(labels)
