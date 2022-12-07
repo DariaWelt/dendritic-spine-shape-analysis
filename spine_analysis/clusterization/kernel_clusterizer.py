@@ -1,8 +1,8 @@
+import random
 from abc import abstractmethod, ABC
 from typing import List, Union, Callable
 
 import numpy as np
-from tslearn.clustering import KernelKMeans
 
 from spine_analysis.clusterization import SpineClusterizer
 
@@ -22,15 +22,62 @@ class KernelSpineClusterizer(SpineClusterizer, ABC):
         return
 
     @abstractmethod
-    def _kernel_fit(self, data: np.ndarray, kernel: Callable) -> List[int]:
+    def _kernel_fit(self, data: np.ndarray, kernel: Callable, initialization: Union[str, List]) -> List[int]:
         pass
 
 
 class KmeansKernelSpineClusterizer(KernelSpineClusterizer):
+    _num_of_clusters: int
+    _D: np.ndarray
+
     def __init__(self, num_of_clusters: int, pca_dim: int = -1, metric: Union[str, Callable] = "euclidean"):
         super().__init__(pca_dim=pca_dim, metric=metric)
         self._num_of_clusters = num_of_clusters
 
-    def _kernel_fit(self, data: np.ndarray, kernel: Callable) -> object:
-        clusterizer = KernelKMeans(n_clusters=self._num_of_clusters, kernel=kernel, random_state=0)
-        return clusterizer.fit_predict(data)
+    def _kernel_fit(self, data: np.ndarray, kernel: Callable, initialization: Union[str, List] = 'random') -> object:
+        self.kernel = kernel
+        self._init_clusters(initialization, data)
+        self._update_labels_loop()
+        self._labels = self._labels.tolist()
+        return self._labels
+
+    def _init_clusters(self, initialization: Union[str, List], data: np.ndarray):
+        if type(initialization) == list:
+            if len(initialization) != self._num_of_clusters:
+                raise ValueError('Size of centroids indices list is not equal to clusters number')
+            if len(set(initialization)) != len(initialization):
+                raise ValueError('Centroids indices in list is not unique')
+            # if elem < 0 or > len(data) raise
+            centroids = initialization
+        elif initialization == 'random':
+            centroids = self.get_random_centroids(data, self._num_of_clusters)
+        else:
+            raise ValueError('Unknown initialization key')
+        self._K = np.array([[self.kernel(x_i, x_j) for x_i in data] for x_j in data])
+        self._D = self._K[:, centroids]
+        self._labels = np.argmin(self._D, axis=1)
+
+    def _update_labels_loop(self, max_iter_num: int = 100, tolerance: float = 0.01):
+        iter_num = 1
+        while iter_num < max_iter_num:
+            new_distances = np.array([[self.calculate_dist_clusters(x_ind, c_i)
+                                       for c_i in range(self._num_of_clusters)]
+                                      for x_ind in range(len(self._K))])
+            new_labels = np.argmin(new_distances, axis=1)
+            interia_sub = abs(sum([self._D[i, l] for i, l in enumerate(self._labels)]) -
+                              sum([new_distances[i, l] for i, l in enumerate(new_labels)]))
+            if interia_sub <= tolerance:
+                return
+            self._D = new_distances
+            self._labels = new_labels
+            iter_num += 1
+
+    def calculate_dist_clusters(self, x_ind: int, c_ind: int):
+        cluster: np.ndarray = np.where(self._labels == c_ind)
+        return self._K[x_ind, x_ind] - \
+               2 / len(cluster) * np.sum(self._K[x_ind, cluster]) + \
+               2 / (len(cluster)*len(cluster)) * np.sum(self._K[cluster, cluster])
+
+    @staticmethod
+    def get_random_centroids(data: np.ndarray, num_clusters: int) -> List[int]:
+        return random.sample(list(range(len(data))), num_clusters)

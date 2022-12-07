@@ -40,6 +40,5 @@ mahotas
 light-field-distance
 opencv
 numba==0.56.2
-tslearn
 pytest
 shapely
