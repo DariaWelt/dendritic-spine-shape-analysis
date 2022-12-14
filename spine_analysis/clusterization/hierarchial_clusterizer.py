@@ -11,7 +11,7 @@ class HierarchicalSpineClusterizer(KernelSpineClusterizer):
         super().__init__(pca_dim=pca_dim, metric=metric)
         self._num_of_clusters = num_of_clusters
 
-    def _kernel_fit(self, data: np.ndarray, kernel: Callable, initialization: Union[str, List]) -> List[int]:
+    def _kernel_fit(self, data: np.ndarray, kernel: Callable, initialization: Union[str, List] = 'random') -> List[int]:
         clusterizer = AgglomerativeClustering(self._num_of_clusters, affinity='precomputed', linkage='single')
         kernel_matrix = np.array([[kernel(x_i, x_j) for x_i in data] for x_j in data])
         clustering = clusterizer.fit(kernel_matrix)

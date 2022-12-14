@@ -241,14 +241,14 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
     def clasterization_preprocess(self, zernike_postprocess='real', **kwargs) -> Any:
         self.value = [[m.real if zernike_postprocess == 'real' else abs(m) for m in moments] for moments in self._value]
 
-    def show(self, image_size: int = 256) -> widgets.Widget:
+    def show(self, image_size: int = 30) -> widgets.Widget:
         out = widgets.Output()
-        with out:
-            fig, ax = plt.subplots(ncols=2, nrows=(len(self.value) + 1) // 2, figsize=(12, 6 * (len(self.value) + 1) // 2))
-            for i, projection in enumerate(self.value):
-                ax[i // 2, i % 2].imshow(self._recover_projection(projection, image_size))
-            plt.savefig("zernike_moments_images.pdf", dpi=600)
-            #plt.show()
+        # with out:
+        #     fig, ax = plt.subplots(ncols=2, nrows=(len(self.value) + 1) // 2, figsize=(12, 6 * (len(self.value) + 1) // 2))
+        #     for i, projection in enumerate(self.value):
+        #         ax[i // 2, i % 2].imshow(self._recover_projection(projection, image_size))
+        #     plt.savefig("zernike_moments_images.pdf", dpi=600)
+        #     #plt.show()
         return out
 
     @staticmethod

@@ -184,14 +184,17 @@ class SpineMetricDataset:
             reader = csv.DictReader(file)
             for row in reader:
                 # extract spine file name
-                spine_name = row.pop(SpineMetricDataset.SPINE_FILE_FIELD)
+                spine_name = row.pop(SpineMetricDataset.SPINE_FILE_FIELD).replace('\\', '/')
                 # extract each metric
                 metrics = []
                 for metric_name in row.keys():
                     value_str = row[metric_name]
-                    metric = create_metric_by_name(metric_name)
-                    metric.parse_value(value_str)
-                    metrics.append(metric)
+                    try:
+                        metric = create_metric_by_name(metric_name)
+                        metric.parse_value(value_str)
+                        metrics.append(metric)
+                    except Exception:
+                        pass
                 output[spine_name] = metrics
         return SpineMetricDataset(output)
 

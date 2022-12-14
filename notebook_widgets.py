@@ -8,6 +8,7 @@ from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from CGAL.CGAL_Kernel import Vector_3, Point_3
 from typing import List, Tuple, Dict, Set, Iterable, Callable
 
+from spine_analysis.clusterization.hierarchial_clusterizer import HierarchicalSpineClusterizer
 from spine_analysis.mesh.utils import MeshDataset, LineSet, preprocess_meshes, _mesh_to_v_f, polylines_to_line_set
 from spine_analysis.mesh.vizualization import _add_line_set_to_viewer, _add_mesh_to_viewer_as_wireframe
 from spine_analysis.shape_metric import OldChordDistributionSpineMetric, HistogramSpineMetric, FloatSpineMetric, \
@@ -913,6 +914,25 @@ def kernel_k_means_clustering_experiment_widget(spine_metrics: SpineMetricDatase
                                         use_pca, classification, f"{filename_prefix}_kernel_kmeans")
 
 
+def kernel_hierarchical_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
+                                                     every_spine_metrics: SpineMetricDataset,
+                                                     spine_dataset: SpineMeshDataset,
+                                                     score_function: Callable[[SpineClusterizer], float],
+                                                     min_num_of_clusters: int = 2,
+                                                     max_num_of_clusters: int = 20,
+                                                     metric="euclidean",
+                                                     use_pca: bool = True,
+                                                     classification: SpineGrouping = None,
+                                                     filename_prefix: str = "") -> widgets.Widget:
+    return clustering_experiment_widget(spine_metrics, every_spine_metrics,
+                                        spine_dataset,
+                                        HierarchicalSpineClusterizer,
+                                        widgets.IntSlider, "num_of_clusters",
+                                        min_num_of_clusters, max_num_of_clusters,
+                                        1, {"metric": metric}, score_function,
+                                        use_pca, classification, f"{filename_prefix}_kernel_hierarchical")
+
+
 def k_means_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                                          every_spine_metrics: SpineMetricDataset,
                                          spine_dataset: SpineMeshDataset,
@@ -1327,6 +1347,4 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
     inspector_dropdown = widgets.Dropdown(
         options=[(name, i) for i, name in enumerate(inspector_names)])
 
-    # return widgets.VBox([grouping.show(metrics_dataset),
-    #                      widgets.interactive(show_inspector, inspector_index=inspector_dropdown)])
     return widgets.interactive(show_inspector, inspector_index=inspector_dropdown)

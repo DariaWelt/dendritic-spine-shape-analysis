@@ -12,7 +12,9 @@ class KernelSpineClusterizer(SpineClusterizer, ABC):
     def _fit(self, data: np.array, names: List[str]) -> object:
         #kernel_matrix = [[self.metric(obj1, obj2) for obj2 in data] for obj1 in data]
         self._data = data
-        self._labels = self._kernel_fit(data, self.metric)
+        if isinstance(self.metric, str):
+            self.metric = self.kernilaze(self.metric)
+        self._labels = self._kernel_fit(data, self.metric, 'random')
 
         for cluster_index in set(self._labels):
             if cluster_index == -1:
@@ -21,6 +23,13 @@ class KernelSpineClusterizer(SpineClusterizer, ABC):
             cluster_names = names_array[self._labels == cluster_index]
             self.grouping.groups[str(cluster_index + 1)] = set(cluster_names)
         return
+
+    @staticmethod
+    def kernilaze(metric: str):
+        if metric == 'euclidean':
+            return lambda x, y: np.linalg.norm(np.array(x)-np.array(y))
+        else:
+            raise ValueError(f'metric {metric} is not supported')
 
     @abstractmethod
     def _kernel_fit(self, data: np.ndarray, kernel: Callable, initialization: Union[str, List]) -> List[int]:

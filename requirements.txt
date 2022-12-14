@@ -16,8 +16,8 @@ ipywidgets==7.6.5
 jupyter_client==7.0.6
 jupyter_core==4.9.1
 matplotlib==3.5.0
-meshplot~=0.4.0
-nbconvert==6.1.0
+meshplot>=0.4.0
+nbconvert==6.4.3
 nbformat==5.1.3
 nest-asyncio==1.5.1
 networkx==2.6.3
@@ -37,7 +37,7 @@ sqlite==3.36.0
 tifffile==2021.7.2
 tk==8.6.11
 mahotas
-light-field-distance
+#light-field-distance #pip
 opencv
 numba==0.56.2
 pytest
