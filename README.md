@@ -39,3 +39,4 @@ try to run
 - jupyter labextension install @jupyter-widgets/jupyterlab-manager
 - jupyter nbextension enable --py --sys-prefix pythreejs
 - conda install -c conda-forge 'nodejs>=12'
+- install meshplot with pip

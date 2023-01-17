@@ -30,8 +30,9 @@ prometheus_client==0.12.0
 prompt-toolkit==3.0.20
 pygments==2.10.0
 python_abi==3.8
+pythreejs
 scikit-image==0.18.3
-scikit-learn==1.0.2
+scikit-learn==1.2.0
 scipy==1.7.1
 sqlite==3.36.0
 tifffile==2021.7.2
