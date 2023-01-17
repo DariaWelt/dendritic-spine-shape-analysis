@@ -23,8 +23,9 @@ class SpineMetricDataset:
     _spine_2_row: Dict[str, int]
     _metric_2_column: Dict[str, int]
     _table = np.ndarray
+    _metric_2_distance: Dict[str, callable] 
 
-    def __init__(self, metrics: Dict[str, List[SpineMetric]] = None) -> None:
+    def __init__(self, metrics: Dict[str, List[SpineMetric]] = None, distances: Dict[str, callable] = None) -> None:
         if metrics is None:
             metrics = {}
         self.num_of_spines = len(metrics)
@@ -41,6 +42,10 @@ class SpineMetricDataset:
         for i, (spine_name, row) in enumerate(metrics.items()):
             for j, metric in enumerate(row):
                 self._table[i, j] = metric
+        
+        self._metric_2_distance = {}
+        for metric_name in self._metric_2_column.keys():
+            self._metric_2_distance[metric_name] = lambda x, y: np.linalg.norm(np.array(x)-np.array(y)) if distances is None or distances.get(metric_name) is None else distances[metric_name]
 
     def row(self, spine_name: str) -> List[SpineMetric]:
         return list(self._table[self._spine_2_row[spine_name], :])
@@ -54,6 +59,13 @@ class SpineMetricDataset:
 
     def element(self, spine_name: str, metric_name: str) -> SpineMetric:
         return self._table[self._spine_2_row[spine_name], self._metric_2_column[metric_name]]
+    
+    def set_metric_distance(self, metric_name: str, distance: callable):
+        self._metric_2_distance[metric_name] = distance
+    
+    @property
+    def metric_distances(self) -> Dict[str, callable]:
+        return dict(self._metric_2_distance)
 
     @property
     def ordered_spine_names(self) -> List[str]:
