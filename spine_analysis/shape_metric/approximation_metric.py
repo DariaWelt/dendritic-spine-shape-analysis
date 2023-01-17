@@ -1,7 +1,7 @@
 import ast
 from abc import ABC, abstractmethod
 from math import factorial
-from typing import List, Iterable, Any, Tuple
+from typing import List, Iterable, Any, Tuple, Dict
 
 import cv2
 import matplotlib.pyplot as plt
@@ -65,11 +65,25 @@ class ApproximationSpineMetric(SpineMetric, ABC):
 
 
 class SphericalGarmonicsSpineMetric(ApproximationSpineMetric):
+    DEFAULT_L_SIZE: int = 10
+    _m_l_map: Dict[int, Tuple[int, int]]
+
     def __init__(self, spine_mesh: Polyhedron_3 = None, l_range: Iterable = None):
         if l_range is None:
-            l_range = range(10)
-        self._basis = [self._get_basis(m, l) for l in l_range for m in range(-l, l+1)]
+            l_range = range(self. DEFAULT_L_SIZE)
+        self._m_l_map = {}
+        self._basis = []
+        i = 0
+        for _l in l_range:
+            for m in range(-_l, _l + 1):
+                self._m_l_map[i] = (m, _l)
+                self._basis.append(self._get_basis(m, _l))
+                i += 1
         super().__init__(spine_mesh)
+
+    @property
+    def m_l_map(self):
+        return dict(self._m_l_map)
 
     def surface_norm(self, point: List[float], dx: float = 0.01) -> np.ndarray:
         f_p = self.surface_value(point)
