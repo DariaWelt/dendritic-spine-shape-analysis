@@ -8,7 +8,8 @@ from CGAL.CGAL_Kernel import Vector_3, cross_product
 from CGAL.CGAL_Polygon_mesh_processing import area, face_area
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3, Polyhedron_3_Facet_handle
 from spine_analysis.shape_metric.float_metric import FloatSpineMetric
-from spine_analysis.shape_metric.utils import _calculate_facet_center, _point_2_vec
+from spine_analysis.shape_metric.utils import _calculate_facet_center, _point_2_vec, _get_junction_triangles, \
+    _calculate_junction_center
 
 
 class JunctionSpineMetric(FloatSpineMetric, ABC):
@@ -19,22 +20,10 @@ class JunctionSpineMetric(FloatSpineMetric, ABC):
     @abstractmethod
     def _calculate(self, spine_mesh: Polyhedron_3) -> Any:
         # identify junction triangles
-        self._junction_triangles = set()
-        for v in spine_mesh.vertices():
-            if v.vertex_degree() > 10:
-                # mark adjacent triangles
-                for h in spine_mesh.halfedges():
-                    if h.vertex() == v:
-                        self._junction_triangles.add(h.facet())
+        self._junction_triangles = _get_junction_triangles(spine_mesh)
 
         # calculate junction center
-        if len(self._junction_triangles) > 0:
-            self._junction_center = Vector_3(0, 0, 0)
-            for facet in self._junction_triangles:
-                self._junction_center += _calculate_facet_center(facet)
-            self._junction_center /= len(self._junction_triangles)
-        else:
-            self._junction_center = _point_2_vec(spine_mesh.points().next())
+        self._junction_center = _calculate_junction_center(spine_mesh)
 
         # calculate vectors to surface
         self._surface_vectors = []

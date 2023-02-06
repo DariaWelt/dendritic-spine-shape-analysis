@@ -87,6 +87,7 @@ class SpineGrouping:
 
     def get_spines_subset(self, spine_names: Iterable[str]) -> "SpineGrouping":
         groups = {label: set() for label in self.group_labels}
+        groups[self.outliers_label] = set()
         for spine in spine_names:
             groups[self.get_group(spine)].add(spine)
         return SpineGrouping(spine_names, groups)
@@ -183,14 +184,14 @@ class SpineGrouping:
     def load(self, filename: str) -> "SpineGrouping":
         with open(filename) as file:
             loaded = json.load(file)
-            self.samples = set(loaded["samples"])
+            self.samples = set(s.replace('\\', '/').replace('0.025-0.025-0.1-dataset', '0.025 0.025 0.1 dataset') for s in loaded["samples"])
             self.groups = loaded["groups"]
             if "outliers_label" in loaded:
                 self.outliers_label = loaded["outliers_label"]
             else:
                 self.outliers_label = None
             for (key, group) in self.groups.items():
-                self.groups[key] = set(group)
+                self.groups[key] = set(g.replace('\\', '/').replace('0.025-0.025-0.1-dataset', '0.025 0.025 0.1 dataset') for g in group)
         return self
 
     def get_group(self, spine_name: str) -> str:

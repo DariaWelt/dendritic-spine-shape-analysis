@@ -44,6 +44,7 @@ class SKLearnSpineClusterizer(SpineClusterizer, ABC):
     _clusterizer: object
 
     def _fit(self, data: np.array, names: List[str]) -> None:
+        self._data = data
         self._fit_data = self._sklearn_fit(data)
         self._labels = self._fit_data.labels_
 
