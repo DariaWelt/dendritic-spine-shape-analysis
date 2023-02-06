@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import numpy as np
@@ -6,6 +8,7 @@ from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from CGAL.CGAL_Kernel import Vector_3, Point_3
 from typing import List, Tuple, Dict, Set, Iterable, Callable
 
+from spine_analysis.clusterization.hierarchial_clusterizer import HierarchicalSpineClusterizer
 from spine_analysis.mesh.utils import MeshDataset, LineSet, preprocess_meshes, _mesh_to_v_f, polylines_to_line_set
 from spine_analysis.mesh.vizualization import _add_line_set_to_viewer, _add_mesh_to_viewer_as_wireframe
 from spine_analysis.shape_metric import OldChordDistributionSpineMetric, HistogramSpineMetric, FloatSpineMetric, \
@@ -19,7 +22,8 @@ from spine_segmentation import point_2_list, list_2_point, hash_point, \
 import meshplot as mp
 from IPython.display import display
 from scipy.ndimage.measurements import label
-from spine_analysis.clusterization import SpineClusterizer, KMeansSpineClusterizer, DBSCANSpineClusterizer
+from spine_analysis.clusterization import SpineClusterizer, KMeansSpineClusterizer, DBSCANSpineClusterizer, \
+    KmeansKernelSpineClusterizer
 from pathlib import Path
 import os
 from sklearn.linear_model import LinearRegression
@@ -105,11 +109,11 @@ class SpineMeshDataset:
         path = Path(folder_path)
         spine_names = list(path.glob(spine_file_pattern))
         for spine_name in spine_names:
-            spine_meshes[str(spine_name)] = Polyhedron_3(str(spine_name))
-            dendrite_path = str(spine_name.parent) + "\\surface_mesh.off"
+            spine_meshes[str(spine_name).replace('\\', '/')] = Polyhedron_3(str(spine_name).replace('\\', '/'))
+            dendrite_path = os.path.join(spine_name.parent, "surface_mesh.off").replace('\\', '/')
             if dendrite_path not in dendrite_meshes:
                 dendrite_meshes[dendrite_path] = Polyhedron_3(dendrite_path)
-            spine_to_dendrite[str(spine_name)] = dendrite_path
+            spine_to_dendrite[str(spine_name).replace('\\', '/')] = dendrite_path
         self.__init__(spine_meshes, dendrite_meshes, spine_to_dendrite)
         return self
 
@@ -818,29 +822,31 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
     #     scores[pca_dim] = []
     #     pca_dim //= 2
 
-    num_of_steps = int(np.ceil((param_max_value - param_min_value) / param_step))
+    num_of_steps = int(np.ceil((param_max_value - param_min_value + 1) / param_step))
     param_values = [np.clip(param_min_value + param_step * i,
                     param_min_value, param_max_value) for i in range(num_of_steps)]
-
+    clusterized = {}
     for (dim, dim_scores) in scores.items():
         for value in param_values:
             clusterizer = clusterizer_type(**{param_name: value}, **static_params, pca_dim=dim)
             clusterizer.fit(spine_metrics)
+            clusterized[value] = deepcopy(clusterizer)
             dim_scores.append(score_function(clusterizer))
 
     peak = np.nanargmax(scores[pca_dim])
 
     # reg = LinearRegression().fit(np.reshape(param_values, (-1, 1)), scores[2])
 
-    param_slider = param_slider_type(min=param_min_value,
-                                     max=param_max_value,
+    param_slider = param_slider_type(min=min(param_values),
+                                     max=max(param_values),
                                      value=param_values[peak],
                                      step=param_step,
                                      continuous_update=False)
 
     def show_clusterization(param_value) -> None:
-        clusterizer = clusterizer_type(**{param_name: param_value}, **static_params, pca_dim=pca_dim)
-        clusterizer.fit(spine_metrics)
+        #clusterizer = clusterizer_type(**{param_name: param_value}, **static_params, pca_dim=pca_dim)
+        #clusterizer.fit(spine_metrics)
+        clusterizer = deepcopy(clusterized[param_value])
 
         score_graph = widgets.Output()
         with score_graph:
@@ -889,6 +895,44 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
     return widgets.VBox([navigation_buttons, clusterization_result])
 
 
+def kernel_k_means_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
+                                                every_spine_metrics: SpineMetricDataset,
+                                                spine_dataset: SpineMeshDataset,
+                                                score_function: Callable[[SpineClusterizer], float],
+                                                min_num_of_clusters: int = 2,
+                                                max_num_of_clusters: int = 20,
+                                                metric="euclidean",
+                                                use_pca: bool = True,
+                                                classification: SpineGrouping = None,
+                                                filename_prefix: str = "") -> widgets.Widget:
+    return clustering_experiment_widget(spine_metrics, every_spine_metrics,
+                                        spine_dataset,
+                                        KmeansKernelSpineClusterizer,
+                                        widgets.IntSlider, "num_of_clusters",
+                                        min_num_of_clusters, max_num_of_clusters,
+                                        1, {"metric": metric}, score_function,
+                                        use_pca, classification, f"{filename_prefix}_kernel_kmeans")
+
+
+def kernel_hierarchical_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
+                                                     every_spine_metrics: SpineMetricDataset,
+                                                     spine_dataset: SpineMeshDataset,
+                                                     score_function: Callable[[SpineClusterizer], float],
+                                                     min_num_of_clusters: int = 2,
+                                                     max_num_of_clusters: int = 20,
+                                                     metric="euclidean",
+                                                     use_pca: bool = True,
+                                                     classification: SpineGrouping = None,
+                                                     filename_prefix: str = "") -> widgets.Widget:
+    return clustering_experiment_widget(spine_metrics, every_spine_metrics,
+                                        spine_dataset,
+                                        HierarchicalSpineClusterizer,
+                                        widgets.IntSlider, "num_of_clusters",
+                                        min_num_of_clusters, max_num_of_clusters,
+                                        1, {"metric": metric}, score_function,
+                                        use_pca, classification, f"{filename_prefix}_kernel_hierarchical")
+
+
 def k_means_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                                          every_spine_metrics: SpineMetricDataset,
                                          spine_dataset: SpineMeshDataset,
@@ -935,16 +979,19 @@ def grouping_metric_distribution_widget(grouping: SpineGrouping,
         distribution_graph = widgets.Output()
         with distribution_graph:
             data = []
-            colors = grouping.colors
+            #colors = grouping.colors
             for label, cluster in grouping.groups.items():
                 cluster_metrics = metrics.get_spines_subset(cluster)
                 metric_column = cluster_metrics.column(metric.name)
-                data.append(metric.get_distribution(metric_column))
-                if issubclass(metric.__class__, HistogramSpineMetric):
-                    value = metric.get_distribution(metric_column)
-                    left_edges = [(int(label) - 1) + j / len(value) for j in range(len(value))]
-                    width = left_edges[1] - left_edges[0]
-                    plt.bar(left_edges, value, align='edge', width=width, color=colors[label])
+                if not issubclass(metric.__class__, FloatSpineMetric):
+                    metric._show_distribution(metric_column)
+                else:
+                    data.append(metric.get_distribution(metric_column))
+                #if issubclass(metric.__class__, HistogramSpineMetric):
+                    #value = metric.get_distribution(metric_column)
+                #    left_edges = [(int(label) - 1) + j / len(value) for j in range(len(value))]
+                #    width = left_edges[1] - left_edges[0]
+                #    plt.bar(left_edges, value, align='edge', width=width, color=colors[label])
             if issubclass(metric.__class__, FloatSpineMetric):
                 plt.boxplot(data)
             plt.title(metric.name)
@@ -964,6 +1011,34 @@ def color_to_hex(color: Tuple[float, float, float, float]) -> str:
     b = [int(c * 255) for c in color]
     c = (b[0] << 16) + (b[1] << 8) + b[2]
     return "#" + f"{c:06x}"
+
+
+def clasters_spines_widget(meshes: SpineMeshDataset, clasterization: SpineGrouping) -> widgets.Widget:
+    clusters = []
+    spines = {}
+    for label, group in clasterization.groups.items():
+        spines[label] = list(group)
+        
+        def show_spine(label):
+            def inter_fun(spine_index: int):
+                name = spines[label][spine_index]
+                spine_viewer = make_viewer(*meshes.spine_v_f[name], width=200, height=200)
+                spine_viewer._renderer.layout = widgets.Layout(border="solid 1px")
+                print(name)
+                display(spine_viewer._renderer)
+                # display(SpinePreview(meshes.spine_meshes[name], meshes.spine_v_f[name],
+                #                  meshes.get_dendrite_v_f(name), [],
+                #                  name, clasterization.get_color(name)[:3]).widget)
+                return clasterization
+            return inter_fun
+
+        spine_index_slider = widgets.IntSlider(max=max(0, len(spines[label]) - 1))
+        navigation_buttons = _make_navigation_widget(spine_index_slider)
+
+        spine_classification = widgets.interactive(show_spine(label), spine_index=spine_index_slider)
+        clusters.append(widgets.HBox(children=[navigation_buttons, spine_classification]))
+        display(clusters[-1])
+    return None #widgets.VBox(clusters)
 
 
 def manual_classification_widget(meshes: SpineMeshDataset,
@@ -1272,6 +1347,4 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
     inspector_dropdown = widgets.Dropdown(
         options=[(name, i) for i, name in enumerate(inspector_names)])
 
-    # return widgets.VBox([grouping.show(metrics_dataset),
-    #                      widgets.interactive(show_inspector, inspector_index=inspector_dropdown)])
     return widgets.interactive(show_inspector, inspector_index=inspector_dropdown)

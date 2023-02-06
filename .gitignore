@@ -138,3 +138,5 @@ output/
 test/
 
 .idea/
+.DS_Store
+CGAL/
