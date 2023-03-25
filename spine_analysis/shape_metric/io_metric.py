@@ -5,6 +5,7 @@ from typing import Dict, List, Union, Any, Set, Iterable
 
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from spine_analysis.mesh.utils import MeshDataset
@@ -23,7 +24,6 @@ class SpineMetricDataset:
     _spine_2_row: Dict[str, int]
     _metric_2_column: Dict[str, int]
     _table = np.ndarray
-    _metric_2_distance: Dict[str, callable] 
 
     def __init__(self, metrics: Dict[str, List[SpineMetric]] = None, distances: Dict[str, callable] = None) -> None:
         if metrics is None:
@@ -54,8 +54,9 @@ class SpineMetricDataset:
         for row in self._table:
             yield list(row)
 
-    def column(self, metric_name: str) -> List[SpineMetric]:
-        return self._table[:, self._metric_2_column[metric_name]]
+    def column(self, metric_name: str) -> Dict[str, SpineMetric]:
+        column_idx = self._metric_2_column[metric_name]
+        return {spine_name: self.row(spine_name)[column_idx] for spine_name in self.spine_names}
 
     def element(self, spine_name: str, metric_name: str) -> SpineMetric:
         return self._table[self._spine_2_row[spine_name], self._metric_2_column[metric_name]]
@@ -102,6 +103,7 @@ class SpineMetricDataset:
         self.__init__(metrics)
 
     def get_spines_subset(self, reduced_spine_names: Iterable[str]) -> "SpineMetricDataset":
+        reduced_spine_names = set(reduced_spine_names).intersection(self.spine_names)
         reduced_spines = {spine_name: self.row(spine_name) for spine_name in reduced_spine_names}
         return SpineMetricDataset(reduced_spines)
 
@@ -138,10 +140,6 @@ class SpineMetricDataset:
         output.standardize()
         return output
 
-    def clasterization_preprocess(self, **kwargs):
-        for spine_name in self.spine_names:
-            [metric.clasterization_preprocess(**kwargs) for metric in self.row(spine_name)]
-
     def row_as_array(self, spine_name: str) -> np.array:
         data = np.array([])
         for spine_metric in self.row(spine_name):
@@ -152,18 +150,23 @@ class SpineMetricDataset:
         data = [self.row_as_array(spine_name) for spine_name in self.ordered_spine_names]
         return np.asarray(data)
 
-    def as_reduced_array(self, n_components: int = 2) -> np.ndarray:
-        return PCA(n_components).fit_transform(self.as_array())
+    def as_reduced_array(self, n_components: int = 2, method: str = "pca") -> np.ndarray:
+        if method == "pca":
+            return PCA(n_components).fit_transform(self.as_array())
+        elif method == "tsne":
+            return TSNE(n_components, init="pca").fit_transform(self.as_array())
+        else:
+            raise NotImplemented(f"method {method} is not supported")
 
-    def pca(self, n_components: int = 2) -> "SpineMetricDataset":
-        pca_metrics = {spine_name: [] for spine_name in self.spine_names}
-        reduced_data = self.as_reduced_array(n_components)
+    def reduce(self, n_components: int = 2, method: str = "pca") -> "SpineMetricDataset":
+        reduced_metrics = {spine_name: [] for spine_name in self.spine_names}
+        reduced_data = self.as_reduced_array(n_components, method)
         ordered_names = self.ordered_spine_names
         for i, spine_name in enumerate(ordered_names):
             for j in range(n_components):
                 conv = ManualSpineMetric(reduced_data[i, j], f"PC{j + 1}")
-                pca_metrics[spine_name].append(conv)
-        return SpineMetricDataset(pca_metrics)
+                reduced_metrics[spine_name].append(conv)
+        return SpineMetricDataset(reduced_metrics)
 
     def save_as_array(self, filename) -> None:
         with open(filename, mode="w") as file:

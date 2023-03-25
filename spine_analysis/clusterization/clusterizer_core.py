@@ -18,8 +18,8 @@ class SpineClusterizer(SpineFitter, ABC):
     metric: Union[Callable[[np.ndarray, np.ndarray], float], str]
     _labels: List[int]
 
-    def __init__(self, metric: Union[Callable, str] = "euclidean", pca_dim: int = -1):
-        super().__init__(pca_dim)
+    def __init__(self, metric: Union[Callable, str] = "euclidean", dim: int = -1, reduction: str = ""):
+        super().__init__(dim, reduction)
         self._labels = []
         self.metric = metric
 

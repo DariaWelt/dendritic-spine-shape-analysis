@@ -5,7 +5,6 @@ from matplotlib.colors import Normalize
 import numpy as np
 from ipywidgets import widgets
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
-from CGAL.CGAL_Kernel import Vector_3, Point_3
 from typing import List, Tuple, Dict, Set, Iterable, Callable
 
 from spine_analysis.clusterization.hierarchial_clusterizer import HierarchicalSpineClusterizer
@@ -21,6 +20,7 @@ from spine_segmentation import point_2_list, list_2_point, hash_point, \
     spines_to_segmentation, correct_segmentation, get_spine_meshes, apply_scale
 import meshplot as mp
 from IPython.display import display
+from scipy.ndimage import measurements
 from scipy.ndimage.measurements import label
 from spine_analysis.clusterization import SpineClusterizer, KMeansSpineClusterizer, DBSCANSpineClusterizer, \
     KmeansKernelSpineClusterizer
@@ -31,7 +31,11 @@ from functools import cmp_to_key
 from spine_analysis.clusterization.utils import ks_test
 from CGAL.CGAL_Polygon_mesh_processing import Polylines
 from CGAL.CGAL_Surface_mesh_skeletonization import surface_mesh_skeletonization
+from scipy.spatial.distance import euclidean
+import csv
 
+
+Color = Tuple[float, float, float]
 
 RED = (1, 0, 0)
 GREEN = (0, 1, 0)
@@ -93,7 +97,7 @@ class SpineMeshDataset:
     def get_dendrite_v_f(self, spine_name: str) -> V_F:
         return self.dendrite_v_f[self.spine_to_dendrite[spine_name]]
 
-    def apply_scale(self, scale: Tuple[float, float, float]) -> None:
+    def apply_scale(self, scale: Color) -> None:
         def _apply_scale(mesh_dataset: MeshDataset) -> None:
             for (name, mesh) in mesh_dataset.items():
                 mesh_dataset[name] = apply_scale(mesh, scale)
@@ -125,8 +129,67 @@ class SpineMeshDataset:
 def create_dir(dir_name: str) -> None:
     try:
         os.mkdir(dir_name)
-    except OSError as error:
+    except OSError as _:
         pass
+
+
+def remove_file(file_path: str) -> None:
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+
+def preprocess_meshes(spine_meshes: MeshDataset) -> Dict[str, V_F]:
+    output = {}
+    for (spine_name, spine_mesh) in spine_meshes.items():
+        output[spine_name] = _mesh_to_v_f(spine_mesh)
+    return output
+
+
+def show_3d_mesh(mesh: Polyhedron_3, scale: Color = (1, 1, 1)) -> None:
+    shown_mesh = apply_scale(mesh, scale)
+    v, f = _mesh_to_v_f(shown_mesh)
+    mp.plot(v, f)
+
+
+def polylines_to_line_set(polylines: Polylines) -> LineSet:
+    output = []
+    for line in polylines:
+        for i in range(len(line) - 1):
+            output.append((line[i], line[i + 1]))
+    return output
+
+
+def show_polylines(polylines: Polylines, mesh: Polyhedron_3 = None) -> None:
+    show_line_set(polylines_to_line_set(polylines), mesh)
+
+
+def _add_line_set_to_viewer(viewer: mp.Viewer, lines: LineSet) -> None:
+    viewer.add_lines(np.array([point_2_list(line[0]) for line in lines]),
+                     np.array([point_2_list(line[1]) for line in lines]),
+                     shading={"line_color": "red"})
+
+
+def _add_mesh_to_viewer_as_wireframe(viewer: mp.Viewer, mesh_v_f: V_F) -> None:
+    (v, f) = mesh_v_f
+    starts = []
+    ends = []
+    for facet in f:
+        starts.append(v[facet[0]])
+        starts.append(v[facet[1]])
+        starts.append(v[facet[2]])
+        ends.append(v[facet[1]])
+        ends.append(v[facet[2]])
+        ends.append(v[facet[0]])
+    viewer.add_lines(np.array(starts), np.array(ends),
+                     shading={"line_color": "gray"})
+
+
+def show_line_set(lines: LineSet, mesh: Polyhedron_3 = None) -> None:
+    view = mp.Viewer({})
+    _add_line_set_to_viewer(view, lines)
+    if mesh:
+        _add_mesh_to_viewer_as_wireframe(view, _mesh_to_v_f(mesh))
+    display(view._renderer)
 
 
 def _show_image(ax, image, mask=None, mask_opacity=0.5,
@@ -157,17 +220,22 @@ def _show_cross_planes(ax, coord_1, coord_2, shape, color_1, color_2, border_col
     ax.plot((shape[1] - 1, shape[1] - 1), (0, shape[0] - 1), color=border_color, lw=3)
 
 
-def make_viewer(v: np.ndarray, f: np.ndarray, c=None, width: int = 600,
-                height: int = 600) -> mp.Viewer:
-    view = mp.Viewer({"width": width, "height": height})
-    view.add_mesh(v, f, c)
-    return view
+def make_viewer(width: int = 600, height: int = 600) -> mp.Viewer:
+    return mp.Viewer({"width": width, "height": height})
+
+
+def make_colors(v_f: V_F, color: Color) -> np.ndarray:
+    num_of_v = v_f[0].shape[0]
+    colors = np.ndarray((num_of_v, 3))
+    for i in range(num_of_v):
+        colors[i] = color
+    return colors
 
 
 def _segmentation_to_colors(vertices: np.ndarray,
                             segmentation: Segmentation,
-                            dendrite_color: Tuple[float, float, float] = GREEN,
-                            spine_color: Tuple[float, float, float] = RED) -> np.ndarray:
+                            dendrite_color: Color = GREEN,
+                            spine_color: Color = RED) -> np.ndarray:
     colors = np.ndarray((vertices.shape[0], 3))
     for i, vertex in enumerate(vertices):
         if hash_point(list_2_point(vertex)) in segmentation:
@@ -180,14 +248,14 @@ def _segmentation_to_colors(vertices: np.ndarray,
 def _grouping_to_colors(vertices: np.ndarray,
                         spine_meshes: MeshDataset,
                         grouping: SpineGrouping,
-                        dendrite_color: Tuple[float, float, float] = GREEN) -> np.ndarray:
+                        dendrite_color: Color = GREEN) -> np.ndarray:
     # generate segmentation for each group
     group_segmentations = []
     outlier_group = grouping.outlier_group
     group_colors = []
-    for (group_label, group) in grouping.groups.items():
+    for (label, group) in grouping.groups.items():
         group_segmentations.append(spines_to_segmentation([spine_meshes[name] for name in group]))
-        group_colors.append(grouping.colors[group_label])
+        group_colors.append(grouping.colors[label])
     group_segmentations.append(spines_to_segmentation([spine_meshes[name] for name in outlier_group]))
     group_colors.append(BLACK)
 
@@ -212,7 +280,7 @@ class SpinePreview:
     spine_name: str
     metrics: List[SpineMetric]
 
-    spine_color: Tuple[float, float, float]
+    _spine_color: Color
 
     _spine_colors: np.ndarray
 
@@ -230,13 +298,24 @@ class SpinePreview:
                  dendrite_v_f: V_F,
                  metrics: List[SpineMetric],
                  spine_name: str,
-                 spine_color: Tuple[float, float, float] = RED) -> None:
-        self.spine_color = spine_color
+                 spine_color: Color = RED) -> None:
+        self._spine_color = spine_color
         self._spine_mesh_id = 0
         self._dendrite_v_f = dendrite_v_f
         self._set_spine_mesh(spine_mesh, spine_v_f, metrics)
         self.spine_name = spine_name
         self.create_views()
+
+    @property
+    def spine_color(self) -> Color:
+        return self._spine_color
+
+    @spine_color.setter
+    def spine_color(self, new_spine_color: Color) -> None:
+        self._spine_color = new_spine_color
+        self._make_colors()
+        self.spine_viewer.update_object(colors=self._get_spine_colors())
+        self.dendrite_viewer.update_object(colors=self._get_dendrite_colors())
 
     def create_views(self) -> None:
         preview_panel = widgets.HBox(children=[self._make_dendrite_view(),
@@ -284,8 +363,8 @@ class SpinePreview:
 
     def _make_dendrite_view(self) -> widgets.Widget:
         # make mesh viewer
-        self.dendrite_viewer = make_viewer(*self._dendrite_v_f,
-                                           self._get_dendrite_colors(), 400, 600)
+        self.dendrite_viewer = make_viewer(400, 600)
+        self.dendrite_viewer.add_mesh(*self._dendrite_v_f, self._get_dendrite_colors())
 
         # set layout
         self.dendrite_viewer._renderer.layout = widgets.Layout(border="solid 1px")
@@ -297,8 +376,8 @@ class SpinePreview:
 
     def _make_spine_view(self) -> widgets.Widget:
         # make mesh viewer
-        self.spine_viewer = make_viewer(*self._spine_v_f,
-                                        self._get_spine_colors(), 200, 200)
+        self.spine_viewer = make_viewer(200, 200)
+        self.spine_viewer.add_mesh(*self._spine_v_f, self._get_spine_colors())
 
         # set layout
         self.spine_viewer._renderer.layout = widgets.Layout(border="solid 1px")
@@ -331,6 +410,7 @@ class SpinePreview:
 class SelectableSpinePreview(SpinePreview):
     is_selected_checkbox: widgets.Checkbox
     is_selected: bool
+    on_selected: Callable[["SelectableSpinePreview"], None] = None
 
     _unselected_spine_colors: np.ndarray
     _unselected_dendrite_colors: np.ndarray
@@ -423,24 +503,26 @@ class SelectableSpinePreview(SpinePreview):
         self.is_selected = value
         self.spine_viewer.update_object(self._spine_mesh_id, colors=self._get_spine_colors())
         self.dendrite_viewer.update_object(colors=self._get_dendrite_colors())
+        if self.on_selected is not None:
+            self.on_selected(self)
 
 
 def _make_navigation_widget(slider: widgets.IntSlider, step=1) -> widgets.Widget:
     next_button = widgets.Button(description=">")
     prev_button = widgets.Button(description="<")
 
-    def disable_buttons(change=None) -> None:
+    def disable_buttons(_=None) -> None:
         next_button.disabled = slider.value >= slider.max
         prev_button.disabled = slider.value <= slider.min
         
     disable_buttons()
     slider.observe(disable_buttons)
 
-    def next_callback(button: widgets.Button) -> None:
+    def next_callback(_: widgets.Button) -> None:
         slider.value += step
         disable_buttons()
 
-    def prev_callback(button: widgets.Button) -> None:
+    def prev_callback(_: widgets.Button) -> None:
         slider.value -= step
         disable_buttons()
 
@@ -455,21 +537,36 @@ def select_spines_widget(spine_meshes: List[Polyhedron_3],
                          dendrite_mesh: Polyhedron_3,
                          metric_names: List[str],
                          metric_params: List[Dict] = None) -> widgets.Widget:
+    # create selectable 3d previews for each spine
     dendrite_v_f: V_F = _mesh_to_v_f(dendrite_mesh)
     spine_previews = [SelectableSpinePreview(spine_mesh, _mesh_to_v_f(spine_mesh),
                                              dendrite_v_f, dendrite_mesh, metric_names,
                                              metric_params)
                       for spine_mesh in spine_meshes]
 
-    def show_spine_by_index(index: int):
+    # set callbacks to update selected spines on checkbox toggle
+    selection = []
+
+    def on_selected_callback(_: SelectableSpinePreview) -> None:
+        selection.clear()
+        selection.extend([(selected_preview.spine_mesh, selected_preview.metrics)
+                          for selected_preview in spine_previews if selected_preview.is_selected])
+
+    for preview in spine_previews:
+        preview.on_selected = on_selected_callback
+
+    # show previews
+    def show_spine_by_index(index: int) -> List[Tuple[Polyhedron_3, List[SpineMetric]]]:
         # keeping old views caused bugs when switching between spines
         # this sacrifices saving camera position but oh well
         spine_previews[index].create_views()
         display(spine_previews[index].widget)
 
         # selected spine meshes and metrics
-        return [(preview.spine_mesh, preview.metrics)
-                for preview in spine_previews if preview.is_selected]
+        selection.clear()
+        selection.extend([(selected_preview.spine_mesh, selected_preview.metrics)
+                          for selected_preview in spine_previews if selected_preview.is_selected])
+        return selection
 
     slider = widgets.IntSlider(min=0, max=len(spine_meshes) - 1)
     navigation_buttons = _make_navigation_widget(slider)
@@ -653,9 +750,9 @@ def interactive_binarization(image: np.ndarray) -> widgets.Widget:
                                block_size=block_size_slider)
 
 
-def select_connected_component_widget(binary_image: np.ndarray) ->widgets.Widget:
+def select_connected_component_widget(binary_image: np.ndarray) -> widgets.Widget:
     # find connected components
-    labels, num_of_components = label(binary_image)
+    labels, num_of_components = measurements.label(binary_image)
 
     # sort labels by size
     unique, counts = np.unique(labels, return_counts=True)
@@ -695,15 +792,15 @@ def select_connected_component_widget(binary_image: np.ndarray) ->widgets.Widget
     return widgets.interactive(show_component, label_index=label_index_slider)
 
 
-def grouping_widget(grouping: SpineGrouping,
-                    spine_dataset: SpineMeshDataset,
-                    metrics_dataset: SpineMetricDataset,
-                    distance_metric=None) -> widgets.Widget:
+def grouping_in_3d_widget(grouping: SpineGrouping,
+                          spine_dataset: SpineMeshDataset,
+                          metrics_dataset: SpineMetricDataset,
+                          distance_metric=None) -> widgets.Widget:
     # TODO: show only representative spines?
     spine_previews_by_cluster = {label: {} for label in grouping.group_labels}
     colors = grouping.colors
 
-    def show_spine_by_cluster(label: str):
+    def show_spine_by_group_label(label: str):
         def show_spine_by_name(spine_name: str):
             if spine_name not in spine_previews_by_cluster[label]:
                 preview = SpinePreview(spine_dataset.spine_meshes[spine_name],
@@ -725,7 +822,7 @@ def grouping_widget(grouping: SpineGrouping,
     group_label_dropdown = widgets.Dropdown(options=grouping.sorted_group_labels,
                                             description="Group:")
 
-    return widgets.interactive(show_spine_by_cluster, label=group_label_dropdown)
+    return widgets.interactive(show_spine_by_group_label, label=group_label_dropdown)
 
 
 # def new_clusterization_widget(clusterizer: SpineClusterizer,
@@ -769,8 +866,8 @@ def new_new_clusterization_widget(grouping: SpineGrouping,
                 spine_dataset.spine_meshes,
                 grouping)
 
-        viewer = make_viewer(*spine_dataset.dendrite_v_f[dendrite_name],
-                             colors[dendrite_name])
+        viewer = make_viewer()
+        viewer.add_mesh(*spine_dataset.dendrite_v_f[dendrite_name], colors[dendrite_name])
         # for spine_name in spine_dataset.dendrite_to_spines[dendrite_name]:
         #     viewer.add_mesh(*spine_dataset.spine_v_f[spine_name])
 
@@ -784,20 +881,24 @@ def new_new_clusterization_widget(grouping: SpineGrouping,
     return widgets.interactive(show_dendrite_by_name, dendrite_name=dendrite_name_dropdown)
 
 
-# def representative_clusterization_widget(clusterizer: SpineClusterizer,
-#                                          spine_meshes: Dict[str, V_F],
-#                                          num_of_samples: int = 3) -> widgets.Widget:
-#     # TODO: deal with dictionaries better than this PLEASE
-#     spine_mesh_list = list(spine_meshes.values())
-#
-#     # for each cluster
-#     rows = []
-#     for index in range(clusterizer.num_of_clusters):
-#         row = [widgets.Label(f"{index}:")]
-#         row.extend([make_viewer(*spine_mesh_list[i], None, 100, 100)._renderer
-#                     for i in clusterizer.get_representative_samples(index, num_of_samples)])
-#         rows.append(widgets.HBox(row))
-#     return widgets.HBox([clusterizer.show(), widgets.VBox(rows)])
+def representative_spines_widget(grouping: SpineGrouping,
+                                 spine_dataset: SpineMeshDataset,
+                                 metrics_dataset: SpineMetricDataset,
+                                 num_of_samples: int = 3,
+                                 distance: Callable = euclidean) -> widgets.Widget:
+    representatives = grouping.get_representative_samples(metrics_dataset, num_of_samples, distance)
+    colors = grouping.colors
+
+    rows = []
+    for label in grouping.sorted_group_labels:
+        row = [widgets.Label(f"{label}:")]
+        for name in representatives[label]:
+            viewer = make_viewer(100, 100)
+            v_f = spine_dataset.spine_v_f[name]
+            viewer.add_mesh(*v_f, make_colors(v_f, colors[label][:3]))
+            row.append(viewer._renderer)
+        rows.append(widgets.HBox(row))
+    return widgets.HBox([grouping.show(metrics_dataset), widgets.VBox(rows)])
 
 
 def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
@@ -808,13 +909,14 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                                  param_min_value, param_max_value, param_step,
                                  static_params: Dict,
                                  score_function: Callable[[SpineClusterizer], float],
-                                 use_pca: bool = True,
+                                 dim_reduction: str = "pca",
+                                 show_method: str = "tsne",
                                  classification: SpineGrouping = None,
-                                 filename_prefix: str = "") -> widgets.Widget:
+                                 save_folder: str = "output/clusterization") -> widgets.Widget:
     # calculate score graph
-    pca_dim = 2 if use_pca else -1
+    reduced_dim = 2 if dim_reduction else -1
 
-    scores = {pca_dim: []}
+    scores = {reduced_dim: []}
 
     # scores = {-1: [], 2: []}
     # pca_dim = spine_metrics.row_as_array(spine_metrics.spine_names[0]).size // 2
@@ -828,12 +930,27 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
     clusterized = {}
     for (dim, dim_scores) in scores.items():
         for value in param_values:
-            clusterizer = clusterizer_type(**{param_name: value}, **static_params, pca_dim=dim)
-            clusterizer.fit(spine_metrics)
+            scored_clusterizer = clusterizer_type(**{param_name: value}, **static_params, dim=dim,
+                                                  reduction=dim_reduction)
+            scored_clusterizer.set_show_method(show_method)
+            scored_clusterizer.fit(spine_metrics)
             clusterized[value] = deepcopy(clusterizer)
-            dim_scores.append(score_function(clusterizer))
+            dim_scores.append(score_function(scored_clusterizer))
 
-    peak = np.nanargmax(scores[pca_dim])
+    peak = np.nanargmax(scores[reduced_dim])
+
+    def export_score_graph(_: widgets.Button):
+        create_dir(save_folder)
+        filename = f"{save_folder}/score_graph.csv"
+        with open(filename, mode="w") as file:
+            writer = csv.writer(file)
+            writer.writerow([param_name] + param_values)
+            writer.writerow(["score"] + scores[reduced_dim])
+        print(f"Saved score graph to '{filename}'.")
+
+    export_score_button = widgets.Button(description="Export Score Graph")
+    export_score_button.on_click(export_score_graph)
+    display(export_score_button)
 
     # reg = LinearRegression().fit(np.reshape(param_values, (-1, 1)), scores[2])
 
@@ -844,9 +961,11 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                                      continuous_update=False)
 
     def show_clusterization(param_value) -> None:
-        #clusterizer = clusterizer_type(**{param_name: param_value}, **static_params, pca_dim=pca_dim)
-        #clusterizer.fit(spine_metrics)
+        #clusterizer = clusterizer_type(**{param_name: param_value}, **static_params, dim=reduced_dim,
+        #                               reduction=dim_reduction)
         clusterizer = deepcopy(clusterized[param_value])
+        clusterizer.set_show_method(show_method)
+        #clusterizer.fit(spine_metrics)
 
         score_graph = widgets.Output()
         with score_graph:
@@ -854,9 +973,9 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
             plt.axhline(y=0, color='r', linestyle='-')
             for (dim, dim_scores) in scores.items():
                 if dim == -1:
-                    plot_label = "no pca"
+                    plot_label = f"no {dim_reduction}"
                 else:
-                    plot_label = f"{dim}d with pca "
+                    plot_label = f"{dim}d with {dim_reduction} "
                 plt.plot(param_values, dim_scores, label=plot_label)
 
             # plt.plot(param_values, reg.predict([[param] for param in param_values]))
@@ -865,17 +984,47 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
             plt.xlabel(param_name)
             plt.ylabel("Score")
             # plt.ylim([-1, 1])
-            plt.legend(loc="lower right")
+            plt.legend()
             # plt.rcParams["figure.figsize"] = (10, 10)
             plt.show()
 
         # export clusterization button
         def export_clusterization(_: widgets.Button):
-            create_dir("output")
-            create_dir("output/clusterization/")
-            save_path = f"output/clusterization/{filename_prefix}_{param_name}={param_value}_pca={clusterizer.pca_dim}_{clusterizer.grouping.num_of_groups}_clusters.json"
-            clusterizer.grouping.save(save_path)
-            print(f"Saved clusterization to \"{save_path}\".")
+            create_dir(save_folder)
+            save_path = f"{save_folder}/{param_name}={param_value}" \
+                        f"_{clusterizer.reduction}={clusterizer.dim}" \
+                        f"_{clusterizer.grouping.num_of_groups}_clusters"
+            create_dir(save_path)
+            save_path += "/"
+
+            clusterization_save_path = save_path + "clusterization.json"
+            clusterizer.grouping.save(clusterization_save_path)
+            print(f"Saved clusterization to \"{clusterization_save_path}\".")
+
+            reduced_save_path = save_path + f"reduced_{dim_reduction}.csv"
+            clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, dim_reduction)
+            print(f"Saved reduced coordinates to \"{reduced_save_path}\".")
+
+            classification_save_path = save_path + "classification.json"
+            classification.save(classification_save_path)
+            print(f"Saved classification to \"{classification_save_path}\".")
+
+            classification_save_reduced_path = save_path + f"classification_reduced_{dim_reduction}.csv"
+            classification.save_reduced(spine_metrics, classification_save_reduced_path, dim_reduction)
+            print(f"Saved classification reduced coordinates to \"{classification_save_reduced_path}\".")
+
+            distribution_save_path = save_path + "metric_distributions.csv"
+            clusterizer.grouping.save_metric_distribution(every_spine_metrics, distribution_save_path)
+            print(f"Saved metric distributions to \"{distribution_save_path}\".")
+
+            clust_over_class_save_path = save_path + "intersection_clust_over_class.csv"
+            clusterizer.grouping.intersection_ratios(classification, False).save(clust_over_class_save_path)
+            class_over_clust_save_path = save_path + "intersection_class_over_clust.csv"
+            classification.intersection_ratios(clusterizer.grouping, False).save(class_over_clust_save_path)
+            class_over_clust_norm_save_path = save_path + "intersection_class_over_clust_norm.csv"
+            classification.intersection_ratios(clusterizer.grouping, True).save(class_over_clust_norm_save_path)
+            print(f'Saved intersection ratios to "{clust_over_class_save_path}", '
+                  f'"{class_over_clust_save_path}", "{class_over_clust_norm_save_path}".')
 
         export_button = widgets.Button(description="Export Clusterization")
         export_button.on_click(export_clusterization)
@@ -902,7 +1051,8 @@ def kernel_k_means_clustering_experiment_widget(spine_metrics: SpineMetricDatase
                                                 min_num_of_clusters: int = 2,
                                                 max_num_of_clusters: int = 20,
                                                 metric="euclidean",
-                                                use_pca: bool = True,
+                                                dim_reduction: str = "pca",
+                                                show_method: str = "tsne",
                                                 classification: SpineGrouping = None,
                                                 filename_prefix: str = "") -> widgets.Widget:
     return clustering_experiment_widget(spine_metrics, every_spine_metrics,
@@ -911,7 +1061,7 @@ def kernel_k_means_clustering_experiment_widget(spine_metrics: SpineMetricDatase
                                         widgets.IntSlider, "num_of_clusters",
                                         min_num_of_clusters, max_num_of_clusters,
                                         1, {"metric": metric}, score_function,
-                                        use_pca, classification, f"{filename_prefix}_kernel_kmeans")
+                                        dim_reduction, show_method, classification, f"{filename_prefix}_kernel_kmeans")
 
 
 def kernel_hierarchical_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
@@ -921,7 +1071,8 @@ def kernel_hierarchical_clustering_experiment_widget(spine_metrics: SpineMetricD
                                                      min_num_of_clusters: int = 2,
                                                      max_num_of_clusters: int = 20,
                                                      metric="euclidean",
-                                                     use_pca: bool = True,
+                                                     dim_reduction: str = "pca",
+                                                     show_method: str = "tsne",
                                                      classification: SpineGrouping = None,
                                                      filename_prefix: str = "") -> widgets.Widget:
     return clustering_experiment_widget(spine_metrics, every_spine_metrics,
@@ -930,7 +1081,7 @@ def kernel_hierarchical_clustering_experiment_widget(spine_metrics: SpineMetricD
                                         widgets.IntSlider, "num_of_clusters",
                                         min_num_of_clusters, max_num_of_clusters,
                                         1, {"metric": metric}, score_function,
-                                        use_pca, classification, f"{filename_prefix}_kernel_hierarchical")
+                                        dim_reduction, show_method, classification, f"{filename_prefix}_kernel_hierarchical")
 
 
 def k_means_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
@@ -940,16 +1091,20 @@ def k_means_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                                          min_num_of_clusters: int = 2,
                                          max_num_of_clusters: int = 20,
                                          metric="euclidean",
-                                         use_pca: bool = True,
+                                         dim_reduction: str = "pca",
+                                         show_method: str = "tsne",
                                          classification: SpineGrouping = None,
-                                         filename_prefix: str = "") -> widgets.Widget:
+                                         save_folder: str = "output/clustering") -> widgets.Widget:
+    min_num_of_clusters = max(min_num_of_clusters, 2)
+    max_num_of_clusters = min(max_num_of_clusters, spine_metrics.num_of_spines)
+    create_dir(save_folder)
     return clustering_experiment_widget(spine_metrics, every_spine_metrics,
                                         spine_dataset,
                                         KMeansSpineClusterizer,
                                         widgets.IntSlider, "num_of_clusters",
                                         min_num_of_clusters, max_num_of_clusters,
                                         1, {"metric": metric}, score_function,
-                                        use_pca, classification, f"{filename_prefix}_kmeans")
+                                        dim_reduction, show_method, classification, f"{save_folder}/kmeans")
 
 
 def dbscan_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
@@ -960,16 +1115,18 @@ def dbscan_clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                                         min_eps: float = 2,
                                         max_eps: float = 20,
                                         eps_step: float = 0.1,
-                                        use_pca: bool = True,
+                                        dim_reduction: str = "pca",
+                                        show_method: str = "tsne",
                                         classification: SpineGrouping = None,
-                                        filename_prefix: str = "") -> widgets.Widget:
+                                        save_folder: str = "output/clustering") -> widgets.Widget:
+    create_dir(save_folder)
     return clustering_experiment_widget(spine_metrics, every_spine_metrics,
                                         spine_dataset,
                                         DBSCANSpineClusterizer,
                                         widgets.FloatSlider, "eps",
                                         min_eps, max_eps, eps_step,
                                         {"metric": metric}, score_function,
-                                        use_pca, classification, f"{filename_prefix}_dbscan")
+                                        dim_reduction, show_method, classification, f"{save_folder}/dbscan")
 
 
 def grouping_metric_distribution_widget(grouping: SpineGrouping,
@@ -982,16 +1139,16 @@ def grouping_metric_distribution_widget(grouping: SpineGrouping,
             #colors = grouping.colors
             for label, cluster in grouping.groups.items():
                 cluster_metrics = metrics.get_spines_subset(cluster)
-                metric_column = cluster_metrics.column(metric.name)
+                metric_column = list(cluster_metrics.column(metric.name).values())
                 if not issubclass(metric.__class__, FloatSpineMetric):
                     metric._show_distribution(metric_column)
                 else:
                     data.append(metric.get_distribution(metric_column))
-                #if issubclass(metric.__class__, HistogramSpineMetric):
-                    #value = metric.get_distribution(metric_column)
-                #    left_edges = [(int(label) - 1) + j / len(value) for j in range(len(value))]
-                #    width = left_edges[1] - left_edges[0]
-                #    plt.bar(left_edges, value, align='edge', width=width, color=colors[label])
+                # if issubclass(metric.__class__, HistogramSpineMetric):
+                #     value = metric.get_distribution(metric_column)
+                #     left_edges = [(int(label) - 1) + j / len(value) for j in range(len(value))]
+                #     width = left_edges[1] - left_edges[0]
+                #     plt.bar(left_edges, value, align='edge', width=width, color=colors[label])
             if issubclass(metric.__class__, FloatSpineMetric):
                 plt.boxplot(data)
             plt.title(metric.name)
@@ -1018,7 +1175,7 @@ def clasters_spines_widget(meshes: SpineMeshDataset, clasterization: SpineGroupi
     spines = {}
     for label, group in clasterization.groups.items():
         spines[label] = list(group)
-        
+
         def show_spine(label):
             def inter_fun(spine_index: int):
                 name = spines[label][spine_index]
@@ -1058,16 +1215,21 @@ def manual_classification_widget(meshes: SpineMeshDataset,
 
     spine_name = [""]
 
-    def class_button_callback(button: widgets.Button) -> None:
-        class_name = button.description
+    preview = []
+
+    def class_button_callback(clicked_button: widgets.Button) -> None:
+        class_name = clicked_button.description
 
         # remove spine from current class
         current_class = result_grouping.get_group(spine_name[0])
-        if current_class is not None:
+        if current_class != result_grouping.outliers_label:
             result_grouping.groups[current_class].remove(spine_name[0])
 
         # add spine to new class
         result_grouping.groups[class_name].add(spine_name[0])
+
+        # update preview spine color (if last spine, needs to be updated!)
+        preview[0].spine_color = colors[class_name][:3]
 
         # move to next spine
         spine_index_slider.value += 1
@@ -1084,10 +1246,12 @@ def manual_classification_widget(meshes: SpineMeshDataset,
 
     def show_spine(spine_index: int) -> SpineGrouping:
         spine_name[0] = spine_names_list[spine_index]
-        name = spine_name[0] 
-        display(SpinePreview(meshes.spine_meshes[name], meshes.spine_v_f[name],
-                             meshes.get_dendrite_v_f(name), metrics.row(name),
-                             name, result_grouping.get_color(name)[:3]).widget)
+        name = spine_name[0]
+        preview.clear()
+        preview.append(SpinePreview(meshes.spine_meshes[name], meshes.spine_v_f[name],
+                                    meshes.get_dendrite_v_f(name), metrics.row(name),
+                                    name, result_grouping.get_color(name)[:3]))
+        display(preview[0].widget)
         return result_grouping
 
     spine_index_slider = widgets.IntSlider(max=max(0, len(spine_names_list) - 1))
@@ -1181,11 +1345,16 @@ def consensus_widget(groupings: List[SpineGrouping]) -> widgets.Widget:
             return -1
         if votes_a > votes_b:
             return 1
-        samples_a = len(merged_grouping.groups[label_a])
-        samples_b = len(merged_grouping.groups[label_b])
+
+        # sort by size if equal votes
+        samples_a = merged_grouping.get_group_size(label_a)
+        samples_b = merged_grouping.get_group_size(label_b)
         return np.sign(samples_a - samples_b)
 
-    merged_grouping = SpineGrouping.merge(groupings)
+    for grouping in groupings:
+        grouping.outliers_label = "Unclassified"
+
+    merged_grouping = SpineGrouping.merge(groupings, outliers_label="Unclassified")
     labels = list(merged_grouping.group_labels)
     labels.sort(key=lambda label: len(merged_grouping.groups[label]), reverse=True)
 
@@ -1224,9 +1393,29 @@ def consensus_widget(groupings: List[SpineGrouping]) -> widgets.Widget:
                            layout=widgets.Layout(grid_template_columns=f"repeat({len(groupings) + 1}, 30px)"))
 
 
+def dendrite_segmentation_view_widget(spine_dataset: SpineMeshDataset) -> widgets.Widget:
+    def show_dendrite_by_name(dendrite_name: str):
+        dendrite_v_f = spine_dataset.dendrite_v_f[dendrite_name]
+        dendrite_colors = np.ndarray((len(dendrite_v_f[0]), 3))
+        dendrite_colors[:] = \
+            _segmentation_to_colors(dendrite_v_f[0],
+                                    spines_to_segmentation([spine_dataset.spine_meshes[spine] for spine in spine_dataset.dendrite_to_spines[dendrite_name]]))
+
+        mesh_viewer = make_viewer(600, 600)
+        mesh_viewer.add_mesh(*dendrite_v_f, dendrite_colors)
+
+        display(widgets.HBox([mesh_viewer._renderer]))
+
+    names = list(spine_dataset.dendrite_names)
+    names.sort()
+    dendrite_names_dropdown = widgets.Dropdown(options=names, description="Dendrite:")
+
+    return widgets.interactive(show_dendrite_by_name, dendrite_name=dendrite_names_dropdown)
+
+
 def spine_dataset_view_widget(spine_dataset: SpineMeshDataset,
                               metrics_dataset: SpineMetricDataset,
-                              spine_color: Tuple[float, float, float] = RED) -> widgets.Widget:
+                              spine_color: Color = RED) -> widgets.Widget:
     def show_spine_by_name(spine_name: str):
         spine_mesh = spine_dataset.spine_meshes[spine_name]
         spine_v_f = spine_dataset.spine_v_f[spine_name]
@@ -1295,11 +1484,14 @@ def view_skeleton_widget(scaled_spine_dataset: SpineMeshDataset) -> widgets.Widg
         w = 600
         h = 600
 
-        mesh_viewer = make_viewer(*scaled_spine_dataset.dendrite_v_f[dendrite_name], width=w, height=h)
-        skeleton_viewer = mp.Viewer({"width": w, "height": h})
+        mesh_viewer = make_viewer(w, h)
+        mesh_viewer.add_mesh(*scaled_spine_dataset.dendrite_v_f[dendrite_name])
+
+        skeleton_viewer = make_viewer(w, h)
         skeleton_line_set = polylines_to_line_set(skeleton_polylines)
         _add_line_set_to_viewer(skeleton_viewer, skeleton_line_set)
-        skeleton_mesh_viewer = mp.Viewer({"width": w, "height": h})
+
+        skeleton_mesh_viewer = make_viewer(w, h)
         _add_line_set_to_viewer(skeleton_mesh_viewer, polylines_to_line_set(skeleton_polylines))
         _add_mesh_to_viewer_as_wireframe(skeleton_mesh_viewer, dendrite_v_f)
 
@@ -1318,7 +1510,7 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
                             reference_grouping: SpineGrouping) -> widgets.Widget:
     inspectors = {}
     inspector_names = ["Metric Distribution", "Reference Grouping Intersection",
-                       "View Spines in 3D"]
+                       "View Spines in 3D", "Representative Spines"]
 
     def generate_inspector(inspector_index) -> widgets.Widget:
         if inspector_index == 0:
@@ -1326,6 +1518,7 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
         elif inspector_index == 1:
             if reference_grouping is not None:
                 intersection_widgets = [
+                    reference_grouping.show(metrics_dataset),
                     widgets.Label("-- Clusters Over Classes --"),
                     grouping_intersection_widget(grouping, reference_grouping, False),
                     widgets.Label("-- Classes Over Clusters, Non-normalized --"),
@@ -1334,10 +1527,12 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
                     grouping_intersection_widget(reference_grouping, grouping, True)
                 ]
             else:
-                intersection_widgets = []
+                intersection_widgets = [widgets.Label("No reference grouping provided!")]
             return widgets.VBox(intersection_widgets)
         elif inspector_index == 2:
-            return grouping_widget(grouping, spine_dataset, metrics_dataset)
+            return grouping_in_3d_widget(grouping, spine_dataset, metrics_dataset)
+        elif inspector_index == 3:
+            return representative_spines_widget(grouping, spine_dataset, metrics_dataset)
 
     def show_inspector(inspector_index):
         if inspector_index not in inspectors:
@@ -1348,3 +1543,43 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
         options=[(name, i) for i, name in enumerate(inspector_names)])
 
     return widgets.interactive(show_inspector, inspector_index=inspector_dropdown)
+
+
+def inspect_saved_groupings_widget(folder_path: str, spine_dataset: SpineMeshDataset,
+                                   all_metrics_dataset: SpineMetricDataset,
+                                   chord_metric_dataset: SpineMetricDataset,
+                                   classic_metrics_dataset: SpineMetricDataset,
+                                   reference_grouping: SpineGrouping,
+                                   grouping_file_pattern: str = "**/*.json") -> widgets.Widget:
+    path = Path(folder_path)
+
+    grouping_paths = [str(grouping_path) for grouping_path in path.glob(grouping_file_pattern)]
+    grouping_paths.sort()
+    groupings = {grouping_path: SpineGrouping().load(grouping_path)
+                 for grouping_path in grouping_paths}
+
+    metrics = [all_metrics_dataset, chord_metric_dataset, classic_metrics_dataset]
+    metric_names = ["Combined", "Chord Length Histogram", "Classic Metrics"]
+
+    def inspect_grouping(grouping_path: str):
+        if grouping_path is None:
+            print("No groupings found!")
+            return
+        grouping = groupings[grouping_path]
+        header = widgets.HBox([widgets.VBox([widgets.Label(f"{name}:"),
+                                             grouping.show(dataset)])
+                               for name, dataset in zip(metric_names, metrics)])
+        display(header)
+
+        def inspect_grouping_by_metric(metrics_set: int):
+            display(inspect_grouping_widget(grouping, spine_dataset,
+                                            metrics[metrics_set], all_metrics_dataset,
+                                            reference_grouping))
+
+        metrics_dropdown = widgets.Dropdown(options=[(name, i) for i, name in enumerate(metric_names)])
+        display(widgets.interactive(inspect_grouping_by_metric, metrics_set=metrics_dropdown))
+
+    groupings_dropdown = widgets.Dropdown(options=grouping_paths)
+
+    return widgets.interactive(inspect_grouping, grouping_path=groupings_dropdown)
+

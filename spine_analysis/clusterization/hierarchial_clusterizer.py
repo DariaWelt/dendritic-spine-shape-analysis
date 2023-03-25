@@ -7,8 +7,8 @@ from spine_analysis.clusterization.kernel_clusterizer import KernelSpineClusteri
 
 
 class HierarchicalSpineClusterizer(KernelSpineClusterizer):
-    def __init__(self, num_of_clusters: int, pca_dim: int = -1, metric: Union[str, Callable] = "euclidean"):
-        super().__init__(pca_dim=pca_dim, metric=metric)
+    def __init__(self, num_of_clusters: int, dim: int = -1, metric: Union[str, Callable] = "euclidean", reduction: str = ""):
+        super().__init__(dim=dim, metric=metric, reduction=reduction)
         self._num_of_clusters = num_of_clusters
 
     def _kernel_fit(self, data: np.ndarray, kernel: Callable, initialization: Union[str, List] = 'random') -> List[int]:

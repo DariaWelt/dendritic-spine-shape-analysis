@@ -14,8 +14,8 @@ class DBSCANSpineClusterizer(SKLearnSpineClusterizer):
     #num_of_noise: int
 
     def __init__(self, eps: float = 0.5, min_samples: int = 2,
-                 metric: Union[str, Callable] = "euclidean", pca_dim: int = -1):
-        super().__init__(metric=metric, pca_dim=pca_dim)
+                 metric: Union[str, Callable] = "euclidean", dim: int = -1, reduction: str = ""):
+        super().__init__(metric=metric, dim=dim, reduction=reduction)
         self.metric = metric
         self.min_samples = min_samples
         self.eps = eps
