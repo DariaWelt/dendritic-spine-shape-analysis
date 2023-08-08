@@ -4,7 +4,8 @@ from typing import List, Dict, Any
 import numpy as np
 
 from CGAL.CGAL_Kernel import Vector_3, Point_3
-from CGAL.CGAL_Polyhedron_3 import Polyhedron_3_Facet_handle, Polyhedron_3
+from CGAL.CGAL_Polygon_mesh_processing import area, face_area
+from CGAL.CGAL_Polyhedron_3 import Polyhedron_3_Facet_handle, Polyhedron_3, Polyhedron_3_Halfedge_handle
 from spine_analysis.shape_metric.metric_core import SpineMetric
 from spine_segmentation import point_2_list
 
@@ -87,17 +88,17 @@ def create_metric_by_name(metric_name: str, *args, **kwargs):
     return klass(*args, **kwargs)
 
 
-def polar2cart(theta: np.ndarray, phi: np.ndarray, radius: np.ndarray) -> np.ndarray:
-    return np.stack([radius * np.sin(theta) * np.cos(phi),
-                     radius * np.sin(theta) * np.sin(phi),
-                     radius * np.cos(theta)], axis=-1)
+def polar2cart(az: np.ndarray, elev: np.ndarray, radius: np.ndarray) -> np.ndarray:
+    return np.stack([radius * np.sin(elev) * np.cos(az),
+                     radius * np.sin(elev) * np.sin(az),
+                     radius * np.cos(elev)], axis=-1)
 
 
 def cart2polar(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     x, y, z = np.array(x), np.array(y), np.array(z)
     XsqPlusYsq = np.power(x, 2) + np.power(y, 2)
     r = np.sqrt(XsqPlusYsq + np.power(z, 2))    # r
-    elev = np.arctan2(z, np.sqrt(XsqPlusYsq))   # theta
+    elev = np.arctan2(np.sqrt(XsqPlusYsq), z)   # theta
     az = np.arctan2(y, x)                       # phi
     return [r, elev, az]
 
@@ -166,3 +167,36 @@ def _make_circle(points, p, q):
     elif left is None:
         res = right
     return circle if res is None else res
+
+def get_incident_halfedges(facet_halfedge: Polyhedron_3_Halfedge_handle) -> List[Polyhedron_3_Halfedge_handle]:
+    return [facet_halfedge, facet_halfedge.next(), facet_halfedge.next().next()]
+
+def subdivide_mesh(mesh: Polyhedron_3,
+                    relative_max_facet_area: float = 0.001) -> Polyhedron_3:
+    out: Polyhedron_3 = mesh.deepcopy()
+    for i, facet in enumerate(out.facets()):
+        facet.set_id(i)
+
+    facets = [facet for facet in out.facets()]
+    total_area = area(out)
+
+    for facet in facets:
+        facet_area = face_area(facet, out)
+        relative_area = facet_area / total_area
+
+        # facet already small enough
+        if relative_area <= relative_max_facet_area:
+            continue
+
+        subdivision_number = int(np.ceil(math.log(relative_area / relative_max_facet_area, 3)))
+        triangles: List[Polyhedron_3_Halfedge_handle] = [facet.halfedge()]
+        for i in range(subdivision_number):
+            new_triangles = []
+            for halfedge in triangles:
+                new_triangles.extend(get_incident_halfedges(halfedge))
+                center = _vec_2_point(_calculate_facet_center(halfedge.facet()))
+                new_v = out.create_center_vertex(halfedge).vertex()
+                new_v.set_point(center)
+            triangles = new_triangles
+
+    return out

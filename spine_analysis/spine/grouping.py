@@ -290,8 +290,9 @@ class SpineGrouping:
                     "o",
                     markerfacecolor=tuple(color),
                     markeredgecolor="k",
-                    markersize=14,
-                    label=f"{group_label}"
+                    markersize=8,
+                    label=f"{group_label}",
+                    alpha=0.3
                 )
 
         if groups_to_show is None:

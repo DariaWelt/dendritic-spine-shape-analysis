@@ -934,7 +934,7 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                                                   reduction=dim_reduction)
             scored_clusterizer.set_show_method(show_method)
             scored_clusterizer.fit(spine_metrics)
-            clusterized[value] = deepcopy(clusterizer)
+            clusterized[value] = deepcopy(scored_clusterizer)
             dim_scores.append(score_function(scored_clusterizer))
 
     peak = np.nanargmax(scores[reduced_dim])

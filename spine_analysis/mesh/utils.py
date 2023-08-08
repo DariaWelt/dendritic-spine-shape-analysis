@@ -58,3 +58,14 @@ def polylines_to_line_set(polylines: Polylines) -> LineSet:
         for i in range(len(line) - 1):
             output.append((line[i], line[i + 1]))
     return output
+
+
+def write_off(fd, v, f):
+    fd.write('OFF\n')
+    fd.write(f'{len(v)} {len(f)} 0\n')
+
+    for v_row in v:
+        fd.write(f'{v_row[0]} {v_row[1]} {v_row[2]}\n')
+
+    for facet in f:
+        fd.write(f'3 {facet[0]} {facet[1]} {facet[2]}\n')

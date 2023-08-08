@@ -5,7 +5,7 @@ from typing import List, Any, Set
 import numpy as np
 
 from CGAL.CGAL_Kernel import Vector_3, cross_product
-from CGAL.CGAL_Polygon_mesh_processing import area, face_area
+from CGAL.CGAL_Polygon_mesh_processing import area, face_area, volume
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3, Polyhedron_3_Facet_handle
 from spine_analysis.shape_metric.float_metric import FloatSpineMetric
 from spine_analysis.shape_metric.utils import _calculate_facet_center, _point_2_vec, _get_junction_triangles, \

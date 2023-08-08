@@ -38,6 +38,9 @@ class SpineClusterizer(SpineFitter, ABC):
     def get_cluster(self, cluster_name: str) -> Set[str]:
         return self.grouping.groups.get(cluster_name, {})
 
+    def set_show_method(self, *args, **kwargs):
+        pass
+
 
 class SKLearnSpineClusterizer(SpineClusterizer, ABC):
     _fit_data: object

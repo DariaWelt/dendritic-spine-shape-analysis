@@ -85,7 +85,8 @@ class SpineMetricDataset:
     def calculate_metrics(self, spine_meshes: MeshDataset,
                           metric_names: List[str],
                           params: List[Dict] = None,
-                          recalculate: bool = True) -> None:
+                          recalculate: bool = True,
+                          processes: int = -1) -> None:
         # TODO: handle metric recalculation
         self.spine_meshes = spine_meshes
         metrics = {}
