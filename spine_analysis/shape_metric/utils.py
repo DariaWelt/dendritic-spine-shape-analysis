@@ -6,6 +6,7 @@ import numpy as np
 from CGAL.CGAL_Kernel import Vector_3, Point_3
 from CGAL.CGAL_Polygon_mesh_processing import area, face_area
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3_Facet_handle, Polyhedron_3, Polyhedron_3_Halfedge_handle
+from spine_analysis.mesh.utils import v_f_to_mesh, V_F
 from spine_analysis.shape_metric.metric_core import SpineMetric
 from spine_segmentation import point_2_list
 
@@ -39,6 +40,26 @@ def _calculate_facet_center(facet: Polyhedron_3_Facet_handle) -> Vector_3:
             break
     center /= 3
     return center
+
+
+def get_facet_norm(facet):
+    circulator = facet.facet_begin()
+    begin = facet.facet_begin()
+    points = []
+    for i in range(3):
+        if not circulator.hasNext():
+            break
+        halfedge = circulator.next()
+        pnt = halfedge.vertex().point()
+        points.append([pnt.x(), pnt.y(), pnt.z()])
+        if circulator == begin:
+            break
+    points = np.array(points)
+    ba = points[0] - points[1]
+    bc = points[2] - points[1]
+
+    norm = np.cross(bc, ba)
+    return norm / np.linalg.norm(norm)
 
 
 def _calculate_junction_center(spine_mesh: Polyhedron_3) -> Vector_3:
@@ -79,6 +100,14 @@ def calculate_metrics(spine_mesh: Polyhedron_3,
     return [create_metric_by_name(name, spine_mesh, **params[i]) for i, name in enumerate(metric_names)]
 
 
+def calculate_metrics_parallel(mesh_v_f: V_F, metric_names, params):
+    if params is None:
+        params = [{}] * len(metric_names)
+    spine_mesh = v_f_to_mesh(*mesh_v_f)
+    res = [create_metric_by_name(name, spine_mesh, **params[i]) for i, name in enumerate(metric_names)]
+    return {metric_name: metric.value for metric_name, metric in zip(metric_names, res)}
+
+
 def create_metric_by_name(metric_name: str, *args, **kwargs):
     path = str(__package__).split('.')
     metric = __import__(__package__)
@@ -102,6 +131,16 @@ def cart2polar(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     az = np.arctan2(y, x)                       # phi
     return [r, elev, az]
 
+
+def get_rotation_matrix(angle, axis):
+    sin_t = np.sin(angle)
+    cos_t = np.cos(angle)
+    x, y, z = axis[0], axis[1], axis[2]
+    return np.array([
+        [cos_t + x ** 2 * (1 - cos_t), -z * sin_t + y * x * (1 - cos_t), y * sin_t + z * x * (1 - cos_t)],
+        [z * sin_t + x * y * (1 - cos_t), cos_t + y ** 2 * (1 - cos_t), -x * sin_t + z * y * (1 - cos_t)],
+        [-y * sin_t + x * z * (1 - cos_t), x * sin_t + y * z * (1 - cos_t), cos_t + z ** 2 * (1 - cos_t)]
+    ])
 
 def point_in_circle(circle, point):
     return circle is not None and math.hypot(*np.subtract(point, circle[:-1])) - circle[-1] <= 1e-14

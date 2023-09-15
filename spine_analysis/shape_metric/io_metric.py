@@ -1,18 +1,19 @@
 import csv
+import functools
 import os
 from copy import deepcopy
+from multiprocessing import Pool
 from typing import Dict, List, Union, Any, Set, Iterable
 
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
-from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
-from spine_analysis.mesh.utils import MeshDataset
+from spine_analysis.mesh.utils import MeshDataset, _mesh_to_v_f
 from spine_analysis.shape_metric.approximation_metric import ApproximationSpineMetric
 from spine_analysis.shape_metric.float_metric import FloatSpineMetric
 from spine_analysis.shape_metric.metric_core import SpineMetric, ManualSpineMetric
-from spine_analysis.shape_metric.utils import calculate_metrics, create_metric_by_name
+from spine_analysis.shape_metric.utils import calculate_metrics, create_metric_by_name, calculate_metrics_parallel
 
 
 class SpineMetricDataset:
@@ -88,10 +89,29 @@ class SpineMetricDataset:
                           recalculate: bool = True,
                           processes: int = -1) -> None:
         # TODO: handle metric recalculation
-        self.spine_meshes = spine_meshes
-        metrics = {}
-        for (spine_name, spine_mesh) in spine_meshes.items():
-            metrics[spine_name] = calculate_metrics(spine_mesh, metric_names, params)
+        processes = min(processes, os.cpu_count()) if processes > 0 else os.cpu_count()
+        chunk_size = int(np.ceil(len(spine_meshes) / processes))
+
+        calculate_parallel = functools.partial(calculate_metrics_parallel, metric_names=metric_names, params=params)
+
+        if processes > 1:
+            spines = [spine_name for spine_name in spine_meshes.keys()]
+            spines_vf = [_mesh_to_v_f(spine_meshes[spine_name]) for spine_name in spines]
+            metrics = {}
+            print(f"run pool with {processes} processes num")
+            with Pool(processes) as pool:
+                results = pool.map(calculate_parallel, spines_vf, chunksize=chunk_size)
+                for spine_name, result in zip(spines, results):
+                    metrics[spine_name] = []
+                    for metric_name in metric_names:
+                        metrics[spine_name].append(create_metric_by_name(metric_name))
+                        metrics[spine_name][-1].value = result[metric_name]
+        else:
+            print(f"run in one process")
+            self.spine_meshes = spine_meshes
+            metrics = {}
+            for (spine_name, spine_mesh) in spine_meshes.items():
+                metrics[spine_name] = calculate_metrics(spine_mesh, metric_names, params)
         self.__init__(metrics)
 
     def as_dict(self) -> Dict[str, List[SpineMetric]]:
@@ -155,7 +175,7 @@ class SpineMetricDataset:
         if method == "pca":
             return PCA(n_components).fit_transform(self.as_array())
         elif method == "tsne":
-            return TSNE(n_components, init="pca").fit_transform(self.as_array())
+            return TSNE(n_components, init="pca", random_state=0).fit_transform(self.as_array())
         else:
             raise NotImplemented(f"method {method} is not supported")
 

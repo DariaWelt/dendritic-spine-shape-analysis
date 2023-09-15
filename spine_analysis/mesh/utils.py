@@ -5,7 +5,7 @@ import numpy as np
 
 from CGAL.CGAL_Kernel import Point_3
 from CGAL.CGAL_Polygon_mesh_processing import Polylines
-from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
+from CGAL.CGAL_Polyhedron_3 import Polyhedron_3, Polyhedron_3_Modifier_3, Integer_triple
 from spine_segmentation import point_2_list
 
 MeshDataset = Dict[str, Polyhedron_3]
@@ -45,6 +45,18 @@ def load_spine_meshes(folder_path: str = "output",
     return output
 
 
+def rotate(mesh: Polyhedron_3, matrix) -> Polyhedron_3:
+    from spine_analysis.shape_metric.utils import calculate_surface_center
+    output = mesh.deepcopy()
+    center = calculate_surface_center(mesh)
+    for v in output.vertices():
+        p = v.point()
+        rotated_p = np.matmul(matrix, [p.x() - center[0], p.y() - center[1], p.z() - center[2]])
+        v.set_point(Point_3(rotated_p[0] + center[0], rotated_p[1] + center[1], rotated_p[2] + center[2]))
+
+    return output
+
+
 def preprocess_meshes(spine_meshes: MeshDataset) -> Dict[str, V_F]:
     output = {}
     for (spine_name, spine_mesh) in spine_meshes.items():
@@ -59,6 +71,15 @@ def polylines_to_line_set(polylines: Polylines) -> LineSet:
             output.append((line[i], line[i + 1]))
     return output
 
+
+def v_f_to_mesh(v: np.ndarray, f: np.ndarray) -> Polyhedron_3:
+    p = Polyhedron_3()
+    modifier = Polyhedron_3_Modifier_3()
+    point_list = [Point_3(*vertex.tolist()) for vertex in v]
+    triple_list = [Integer_triple(*facet.tolist()) for facet in f]
+    modifier.set_modifier_data(point_list, triple_list)
+    p.delegate(modifier.get_modifier())
+    return p
 
 def write_off(fd, v, f):
     fd.write('OFF\n')

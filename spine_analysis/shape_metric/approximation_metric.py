@@ -24,7 +24,7 @@ from CGAL.CGAL_Kernel import Ray_3, Point_3
 from CGAL.CGAL_Polygon_mesh_processing import Polylines
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from CGAL.CGAL_Surface_mesh_skeletonization import surface_mesh_skeletonization
-from spine_analysis.mesh.utils import write_off
+from spine_analysis.mesh.utils import write_off, v_f_to_mesh
 from spine_analysis.shape_metric.metric_core import SpineMetric
 from spine_analysis.shape_metric.utils import polar2cart, cart2polar, _point_2_list, get_enclosing_circle, _vec_2_point, \
     _calculate_facet_center, subdivide_mesh
@@ -256,11 +256,8 @@ class SphericalGarmonicsSpineMetric(ApproximationSpineMetric):
         rad = np.array([composition_callback(a_i, e_i) for a_i, e_i in zip(az, elev)])
         v = polar2cart(az, elev, rad)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            file_path = os.path.join(temp_dir, 'tmp.off')
-            with open(file_path, 'w') as fd:
-                write_off(fd, v, c)
-            mesh = Polyhedron_3(file_path)
+        mesh = v_f_to_mesh(v, c)
+
         return mesh, v, c
 
     def parse_value(self, value_str: str):
@@ -385,7 +382,12 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         ax.boxplot(cls.get_distribution(metrics))
 
     def parse_value(self, value_str):
-        value = ast.literal_eval(value_str)
+        value_str = value_str.replace('\n', '')
+        value_str = value_str.replace('  ', ' ')
+        k = value_str.split("] [ ")
+        k[0] = k[0][3:]
+        k[-1] = k[-1][:-2]
+        value = [np.fromstring(val, sep=" ", dtype="complex") for val in k]
         self.value = value
 
     def value_as_lists(self) -> List[Any]:

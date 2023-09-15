@@ -4,16 +4,20 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 import numpy as np
 from ipywidgets import widgets
+from sklearn.decomposition import PCA
+
 from CGAL.CGAL_Polyhedron_3 import Polyhedron_3
 from typing import List, Tuple, Dict, Set, Iterable, Callable
 
 from spine_analysis.clusterization.hierarchial_clusterizer import HierarchicalSpineClusterizer
-from spine_analysis.mesh.utils import MeshDataset, LineSet, preprocess_meshes, _mesh_to_v_f, polylines_to_line_set
+from spine_analysis.mesh.utils import MeshDataset, LineSet, preprocess_meshes, _mesh_to_v_f, polylines_to_line_set, \
+    rotate
 from spine_analysis.mesh.vizualization import _add_line_set_to_viewer, _add_mesh_to_viewer_as_wireframe
 from spine_analysis.shape_metric import OldChordDistributionSpineMetric, HistogramSpineMetric, FloatSpineMetric, \
     SpineMetric
 from spine_analysis.shape_metric.io_metric import SpineMetricDataset
-from spine_analysis.shape_metric.utils import calculate_metrics
+from spine_analysis.shape_metric.utils import calculate_metrics, _get_junction_triangles, get_facet_norm, \
+    get_rotation_matrix
 from spine_analysis.spine.grouping import SpineGrouping
 from spine_segmentation import point_2_list, list_2_point, hash_point, \
     Segmentation, segmentation_by_distance, local_threshold_3d,\
@@ -29,7 +33,7 @@ import os
 from sklearn.linear_model import LinearRegression
 from functools import cmp_to_key
 from spine_analysis.clusterization.utils import ks_test
-from CGAL.CGAL_Polygon_mesh_processing import Polylines
+from CGAL.CGAL_Polygon_mesh_processing import Polylines, face_area
 from CGAL.CGAL_Surface_mesh_skeletonization import surface_mesh_skeletonization
 from scipy.spatial.distance import euclidean
 import csv
@@ -104,6 +108,52 @@ class SpineMeshDataset:
         _apply_scale(self.spine_meshes)
         _apply_scale(self.dendrite_meshes)
         self._calculate_v_f()
+
+    @staticmethod
+    def _orient_spine(mesh):
+        target_normal = [0, -1, 0]
+        junction_triangles = _get_junction_triangles(mesh)
+
+        mean_norm = np.zeros(3)
+        for triangle in junction_triangles:
+            cur_norm = get_facet_norm(triangle)
+            if np.isnan(cur_norm).any():
+                continue
+            mean_norm += cur_norm * face_area(triangle, mesh)
+        mean_norm = mean_norm / np.linalg.norm(mean_norm)
+
+        if np.isnan(mean_norm).any():
+            return mesh
+
+        rotation_axis = np.cross(mean_norm, target_normal)
+
+        t = np.arcsin(np.linalg.norm(rotation_axis))
+        if np.dot(mean_norm, target_normal) < 0:
+            t = np.pi - t
+        if mean_norm[0] < target_normal[0] < 0:
+            t = 2 * np.pi - t
+
+        rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
+        r_matrix = get_rotation_matrix(t, rotation_axis)
+
+        result_mesh = rotate(mesh, r_matrix)
+
+        data = np.ndarray((mesh.size_of_vertices(), 2))
+        for i, vertex in enumerate(mesh.vertices()):
+            data[i, :] = [vertex.point().x(), vertex.point().z()]
+        pca = PCA(n_components=1)
+        pca.fit(data)
+        t = np.arctan2(pca.components_[0][0], pca.components_[0][1])
+
+        r_matrix = get_rotation_matrix(t, target_normal)
+
+        return rotate(result_mesh, r_matrix)
+
+    def orient_spines(self) -> None:
+        """ Rotate the spikes so the polygons of the dendrite junction are maximally parallel to the xy plane,
+        and the most wide axis is directed along x """
+        for (name, mesh) in self.spine_meshes.items():
+            self.spine_meshes[name] = self._orient_spine(mesh)
 
     def load(self, folder_path: str = "output",
              spine_file_pattern: str = "**/spine_*.off") -> "SpineMeshDataset":
@@ -362,15 +412,18 @@ class SpinePreview:
         return self._spine_colors
 
     def _make_dendrite_view(self) -> widgets.Widget:
+        # title
+        title = widgets.Label("Full View")
+
         # make mesh viewer
+        if len(self._dendrite_v_f[0]) < 1:
+            return widgets.VBox(children=[title])
+
         self.dendrite_viewer = make_viewer(400, 600)
         self.dendrite_viewer.add_mesh(*self._dendrite_v_f, self._get_dendrite_colors())
 
         # set layout
         self.dendrite_viewer._renderer.layout = widgets.Layout(border="solid 1px")
-
-        # title
-        title = widgets.Label("Full View")
 
         return widgets.VBox(children=[title, self.dendrite_viewer._renderer])
 
@@ -992,7 +1045,7 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
         def export_clusterization(_: widgets.Button):
             create_dir(save_folder)
             save_path = f"{save_folder}/{param_name}={param_value}" \
-                        f"_{clusterizer.reduction}={clusterizer.dim}" \
+                        f"_{clusterizer.reduction}={clusterizer.pca_dim}" \
                         f"_{clusterizer.grouping.num_of_groups}_clusters"
             create_dir(save_path)
             save_path += "/"

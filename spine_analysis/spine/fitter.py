@@ -17,6 +17,7 @@ class SpineFitter(ABC):
     def __init__(self, pca_dim: int = -1, reduction=None):
         self.pca_dim = pca_dim
         self.grouping = SpineGrouping()
+        self.reduction = reduction
 
     # def get_representative_samples(self, group_index: int,
     #                                num_of_samples: int = 4,
