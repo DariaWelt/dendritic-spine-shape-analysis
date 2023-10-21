@@ -1012,17 +1012,19 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
             clusterizer.grouping.save(clusterization_save_path)
             print(f"Saved clusterization to \"{clusterization_save_path}\".")
 
-            reduced_save_path = save_path + f"reduced_{dim_reduction}.csv"
-            clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, dim_reduction)
-            print(f"Saved reduced coordinates to \"{reduced_save_path}\".")
+            if dim_reduction:
+                reduced_save_path = save_path + f"reduced_{dim_reduction}.csv"
+                clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, dim_reduction)
+                print(f"Saved reduced coordinates to \"{reduced_save_path}\".")
 
             classification_save_path = save_path + "classification.json"
             classification.save(classification_save_path)
             print(f"Saved classification to \"{classification_save_path}\".")
 
-            classification_save_reduced_path = save_path + f"classification_reduced_{dim_reduction}.csv"
-            classification.save_reduced(spine_metrics, classification_save_reduced_path, dim_reduction)
-            print(f"Saved classification reduced coordinates to \"{classification_save_reduced_path}\".")
+            if dim_reduction:
+                classification_save_reduced_path = save_path + f"classification_reduced_{dim_reduction}.csv"
+                classification.save_reduced(spine_metrics, classification_save_reduced_path, dim_reduction)
+                print(f"Saved classification reduced coordinates to \"{classification_save_reduced_path}\".")
 
             distribution_save_path = save_path + "metric_distributions.csv"
             clusterizer.grouping.save_metric_distribution(every_spine_metrics, distribution_save_path)
