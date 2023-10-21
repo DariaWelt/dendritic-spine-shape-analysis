@@ -1017,27 +1017,29 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
                 clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, dim_reduction)
                 print(f"Saved reduced coordinates to \"{reduced_save_path}\".")
 
-            classification_save_path = save_path + "classification.json"
-            classification.save(classification_save_path)
-            print(f"Saved classification to \"{classification_save_path}\".")
+            if classification:
+                classification_save_path = save_path + "classification.json"
+                classification.save(classification_save_path)
+                print(f"Saved classification to \"{classification_save_path}\".")
 
-            if dim_reduction:
-                classification_save_reduced_path = save_path + f"classification_reduced_{dim_reduction}.csv"
-                classification.save_reduced(spine_metrics, classification_save_reduced_path, dim_reduction)
-                print(f"Saved classification reduced coordinates to \"{classification_save_reduced_path}\".")
+                if dim_reduction:
+                    classification_save_reduced_path = save_path + f"classification_reduced_{dim_reduction}.csv"
+                    classification.save_reduced(spine_metrics, classification_save_reduced_path, dim_reduction)
+                    print(f"Saved classification reduced coordinates to \"{classification_save_reduced_path}\".")
 
             distribution_save_path = save_path + "metric_distributions.csv"
             clusterizer.grouping.save_metric_distribution(every_spine_metrics, distribution_save_path)
             print(f"Saved metric distributions to \"{distribution_save_path}\".")
 
-            clust_over_class_save_path = save_path + "intersection_clust_over_class.csv"
-            clusterizer.grouping.intersection_ratios(classification, False).save(clust_over_class_save_path)
-            class_over_clust_save_path = save_path + "intersection_class_over_clust.csv"
-            classification.intersection_ratios(clusterizer.grouping, False).save(class_over_clust_save_path)
-            class_over_clust_norm_save_path = save_path + "intersection_class_over_clust_norm.csv"
-            classification.intersection_ratios(clusterizer.grouping, True).save(class_over_clust_norm_save_path)
-            print(f'Saved intersection ratios to "{clust_over_class_save_path}", '
-                  f'"{class_over_clust_save_path}", "{class_over_clust_norm_save_path}".')
+            if classification:
+                clust_over_class_save_path = save_path + "intersection_clust_over_class.csv"
+                clusterizer.grouping.intersection_ratios(classification, False).save(clust_over_class_save_path)
+                class_over_clust_save_path = save_path + "intersection_class_over_clust.csv"
+                classification.intersection_ratios(clusterizer.grouping, False).save(class_over_clust_save_path)
+                class_over_clust_norm_save_path = save_path + "intersection_class_over_clust_norm.csv"
+                classification.intersection_ratios(clusterizer.grouping, True).save(class_over_clust_norm_save_path)
+                print(f'Saved intersection ratios to "{clust_over_class_save_path}", '
+                      f'"{class_over_clust_save_path}", "{class_over_clust_norm_save_path}".')
 
         export_button = widgets.Button(description="Export Clusterization")
         export_button.on_click(export_clusterization)
