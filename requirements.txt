@@ -37,4 +37,5 @@ opencv
 numba==0.56.2
 pytest
 shapely
+umap-learn
 #icosphere pip
