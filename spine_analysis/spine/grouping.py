@@ -73,7 +73,7 @@ class SpineGrouping:
         self._show_method = show_method
 
     def set_show_method(self, method: str):
-        if method == "pca" or method == "tsne":
+        if method == "pca" or method == "tsne" or method == "umap":
             self._show_method = method
 
     @property
@@ -270,6 +270,7 @@ class SpineGrouping:
         out = widgets.Output()
         with out:
             self._show(metrics, groups_to_show)
+            plt.savefig("out.png", dpi=600)
             plt.show()
 
         return out
@@ -314,8 +315,8 @@ class SpineGrouping:
 
         plt.title(f"Number of groups: {self.num_of_groups}")
         plt.legend()
-        plt.xlabel(metrics.metric_names[0])
-        plt.ylabel(metrics.metric_names[1])
+        #plt.xlabel(metrics.metric_names[0])
+        #plt.ylabel(metrics.metric_names[1])
 
     def get_balanced_subset(self, size_ratio: Union[float, Dict] = 0.5) -> "SpineGrouping":
         new_groups = {}

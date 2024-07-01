@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -123,6 +124,7 @@ class SpineMeshDataset:
         mean_norm = mean_norm / np.linalg.norm(mean_norm)
 
         if np.isnan(mean_norm).any():
+            print("cant calculate norm")
             return mesh
 
         rotation_axis = np.cross(mean_norm, target_normal)
@@ -855,6 +857,7 @@ def grouping_in_3d_widget(grouping: SpineGrouping,
 
     def show_spine_by_group_label(label: str):
         def show_spine_by_name(spine_name: str):
+            spine_previews_by_cluster[label] = {}
             if spine_name not in spine_previews_by_cluster[label]:
                 preview = SpinePreview(spine_dataset.spine_meshes[spine_name],
                                        spine_dataset.spine_v_f[spine_name],
@@ -1054,17 +1057,26 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
             clusterizer.grouping.save(clusterization_save_path)
             print(f"Saved clusterization to \"{clusterization_save_path}\".")
 
-            reduced_save_path = save_path + f"reduced_{dim_reduction}.csv"
-            clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, dim_reduction)
-            print(f"Saved reduced coordinates to \"{reduced_save_path}\".")
+            if dim_reduction:
+                reduced_save_path = save_path + f"reduced_{dim_reduction}.csv"
+                clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, dim_reduction)
+                print(f"Saved reduced coordinates to \"{reduced_save_path}\".")
 
             classification_save_path = save_path + "classification.json"
             classification.save(classification_save_path)
             print(f"Saved classification to \"{classification_save_path}\".")
 
-            classification_save_reduced_path = save_path + f"classification_reduced_{dim_reduction}.csv"
-            classification.save_reduced(spine_metrics, classification_save_reduced_path, dim_reduction)
-            print(f"Saved classification reduced coordinates to \"{classification_save_reduced_path}\".")
+            score_values_path = save_path + "score_values.json"
+            with open(score_values_path, 'w') as f:
+                scores_info = scores.copy()
+                scores_info['x_labels'] = np.array(param_values).tolist()
+                json.dump(scores_info, f)
+            print(f"Saved scores values to \"{score_values_path}\".")
+
+            if dim_reduction:
+                classification_save_reduced_path = save_path + f"classification_reduced_{dim_reduction}.csv"
+                classification.save_reduced(spine_metrics, classification_save_reduced_path, dim_reduction)
+                print(f"Saved classification reduced coordinates to \"{classification_save_reduced_path}\".")
 
             distribution_save_path = save_path + "metric_distributions.csv"
             clusterizer.grouping.save_metric_distribution(every_spine_metrics, distribution_save_path)
@@ -1231,8 +1243,10 @@ def clasters_spines_widget(meshes: SpineMeshDataset, clasterization: SpineGroupi
 
         def show_spine(label):
             def inter_fun(spine_index: int):
+                print(label)
                 name = spines[label][spine_index]
-                spine_viewer = make_viewer(*meshes.spine_v_f[name], width=200, height=200)
+                spine_viewer = make_viewer(width=200, height=200)
+                spine_viewer.add_mesh(*meshes.spine_v_f[name])
                 spine_viewer._renderer.layout = widgets.Layout(border="solid 1px")
                 print(name)
                 display(spine_viewer._renderer)
@@ -1247,8 +1261,7 @@ def clasters_spines_widget(meshes: SpineMeshDataset, clasterization: SpineGroupi
 
         spine_classification = widgets.interactive(show_spine(label), spine_index=spine_index_slider)
         clusters.append(widgets.HBox(children=[navigation_buttons, spine_classification]))
-        display(clusters[-1])
-    return None #widgets.VBox(clusters)
+    return widgets.VBox(clusters)
 
 
 def manual_classification_widget(meshes: SpineMeshDataset,

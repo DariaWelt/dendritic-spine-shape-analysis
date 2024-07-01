@@ -14,7 +14,7 @@ Dendritic spine analysis tool for dendritic spine image segmentation, dendritic 
 5. Execute
 ```cmd
 cd PATH_TO_CODE
-conda create --name spine-analysis -c conda-forge --file requirements.txt -y
+conda create --name spine-analysis -c conda-forge --file requirements.txt -y python=3.8
 ```
 ## Run
 1. Open Anaconda

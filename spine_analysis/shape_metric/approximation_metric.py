@@ -30,7 +30,6 @@ from spine_analysis.shape_metric.utils import polar2cart, cart2polar, _point_2_l
     _calculate_facet_center, subdivide_mesh
 from spine_segmentation import point_2_list
 
-
 class ApproximationSpineMetric(SpineMetric, ABC):
     _basis: List[callable]
     _bbox: np.ndarray
@@ -265,7 +264,7 @@ class SphericalGarmonicsSpineMetric(ApproximationSpineMetric):
         value_str = value_str.replace('  ', ' ')
         try:
             value = ast.literal_eval(value_str)
-        except SyntaxError:
+        except Exception:
             value = np.fromstring(value_str[1:-1], dtype="float", sep=" ")
         self.value = value
 
@@ -276,9 +275,48 @@ class SphericalGarmonicsSpineMetric(ApproximationSpineMetric):
 # TODO: move from Approximation class
 class LightFieldZernikeMomentsSpineMetric(SpineMetric):
     def __init__(self, spine_mesh: Polyhedron_3 = None, radius: int = 1, view_points: int = 5, order: int = 15):
-        sphere_iteratable = list(range(5, 175, 170 // (view_points-1)))
-        self._view_points = np.array([[phi, theta, radius*2]
-                                      for phi in sphere_iteratable for theta in sphere_iteratable])
+        #v, _ = icosphere.icosphere(view_points // 5)
+        #_, elev, az = cart2polar(v[:, 0], v[:, 1], v[:, 2])
+        #self._view_points = np.array([[az[i], elev[i], radius*2]
+        #                              for i in range(0, len(elev))])
+        sphere_points_data = {
+            3: np.array([ 
+                                      [0, 0, radius*2], 
+                                      [0, np.pi/2, radius*2], 
+                                      [np.pi/2, np.pi/2, radius*2],
+                                      ]),
+            5: np.array([ 
+                                      [0, 0, radius*2], 
+                                      [0, np.pi/2, radius*2], 
+                                      [np.pi/2, np.pi/2, radius*2],
+                                      [np.pi/3, np.pi/3, radius*2],
+                                      [np.pi/3, 2*np.pi/3, radius*2],
+                                      ]),
+            7: np.array([ 
+                                      [0, 0, radius*2], 
+                                      [0, np.pi/2, radius*2], 
+                                      [np.pi/2, np.pi/2, radius*2],
+                                      [np.pi/3, np.pi/3, radius*2],
+                                      [np.pi/3, 2*np.pi/3, radius*2],
+                                      [2*np.pi/3, np.pi/3, radius*2],
+                                      [2*np.pi/3, 2*np.pi/3, radius*2],
+                                      ]),
+            10: np.array([
+                                      [0, 0, radius*2], 
+                                      [0, np.pi/2, radius*2], 
+                                      [0, -np.pi/2, radius*2], 
+                                      [0, np.pi, radius*2],
+                                      [-np.pi/2, np.pi/2, radius*2],
+                                      [np.pi/2, np.pi/2, radius*2],
+                                      [np.pi/3, np.pi/3, radius*2],
+                                      [np.pi/3, 2*np.pi/3, radius*2],
+                                      [2*np.pi/3, np.pi/3, radius*2],
+                                      [2*np.pi/3, 2*np.pi/3, radius*2],
+                                      ])
+        }
+        if view_points not in sphere_points_data.keys():
+            raise ValueError(f"Invalid argument value. view_points could be equal to one of the value - {sphere_points_data.keys()}")
+        self._view_points = sphere_points_data[view_points]
         self._zernike_radius = radius
         self._zernike_order = order
         super().__init__(spine_mesh)
@@ -348,7 +386,12 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         facet_points = map(lambda points: np.matmul(points, rotation_matrix)[...,[0,1]], facet_points)
         
         for facet_2d in facet_points:
-            res_poly = res_poly.union(Polygon(facet_2d).buffer(0))
+            cur_poly = Polygon(facet_2d).buffer(1).buffer(-1)
+            if not cur_poly.is_valid:
+                cur_poly = cur_poly.convex_hull
+                if not cur_poly.is_valid:
+                    continue
+            res_poly = res_poly.union(cur_poly)
             if type(res_poly) is Polygon:
                 res_poly = MultiPolygon([res_poly])
             res_poly = make_valid(res_poly)
@@ -362,9 +405,8 @@ class LightFieldZernikeMomentsSpineMetric(SpineMetric):
         return LightFieldZernikeMomentsSpineMetric.repr_distance(np.array(mesh_descr1._value), np.array(mesh_descr2._value))
 
     @staticmethod
-    def repr_distance(data1: np.ndarray, data2: np.ndarray):
+    def repr_distance(data1: np.ndarray, data2: np.ndarray, view_points_squared: int = 25):
         if data1.ndim != 2:
-            view_points_squared = 25
             data1 = data1.reshape(view_points_squared, int(data1.shape[0]/view_points_squared))
             data2 = data2.reshape(view_points_squared, int(data2.shape[0]/view_points_squared))
         cost_matrix = [[distance.cityblock(m1, m2) if not(np.isnan(m2).any() or np.isnan(m1).any()) else 0 for m2 in data1] for m1 in data2]

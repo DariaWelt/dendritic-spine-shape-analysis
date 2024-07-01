@@ -99,13 +99,31 @@ def calculate_metrics(spine_mesh: Polyhedron_3,
         params = [{}] * len(metric_names)
     return [create_metric_by_name(name, spine_mesh, **params[i]) for i, name in enumerate(metric_names)]
 
+import sys
+import tblib.pickling_support
+tblib.pickling_support.install()
+class ExceptionWrapper(object):
+
+    def __init__(self, ee):
+        self.ee = ee
+        __, __, self.tb = sys.exc_info()
+
+    def re_raise(self):
+        raise self.ee.with_traceback(self.tb)
+
 
 def calculate_metrics_parallel(mesh_v_f: V_F, metric_names, params):
     if params is None:
         params = [{}] * len(metric_names)
     spine_mesh = v_f_to_mesh(*mesh_v_f)
-    res = [create_metric_by_name(name, spine_mesh, **params[i]) for i, name in enumerate(metric_names)]
-    return {metric_name: metric.value for metric_name, metric in zip(metric_names, res)}
+    res = []
+    for i, name in enumerate(metric_names):
+        try:
+            metric = create_metric_by_name(name, spine_mesh, **params[i])
+            res.append(metric)
+        except Exception as e:
+            return ExceptionWrapper(e)
+    return {metric_name: metric.value if metric is not None else None for metric_name, metric in zip(metric_names, res)}
 
 
 def create_metric_by_name(metric_name: str, *args, **kwargs):

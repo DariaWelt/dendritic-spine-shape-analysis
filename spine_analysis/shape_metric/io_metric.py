@@ -8,12 +8,14 @@ from typing import Dict, List, Union, Any, Set, Iterable
 import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+import tqdm
+import umap
 
 from spine_analysis.mesh.utils import MeshDataset, _mesh_to_v_f
 from spine_analysis.shape_metric.approximation_metric import ApproximationSpineMetric
 from spine_analysis.shape_metric.float_metric import FloatSpineMetric
 from spine_analysis.shape_metric.metric_core import SpineMetric, ManualSpineMetric
-from spine_analysis.shape_metric.utils import calculate_metrics, create_metric_by_name, calculate_metrics_parallel
+from spine_analysis.shape_metric.utils import calculate_metrics, create_metric_by_name, calculate_metrics_parallel, ExceptionWrapper
 
 
 class SpineMetricDataset:
@@ -100,8 +102,15 @@ class SpineMetricDataset:
             metrics = {}
             print(f"run pool with {processes} processes num")
             with Pool(processes) as pool:
-                results = pool.map(calculate_parallel, spines_vf, chunksize=chunk_size)
+                results = list(tqdm.tqdm(pool.imap(calculate_parallel, spines_vf, chunksize=chunk_size), total=len(spines_vf)))
+                #results = pool.map(calculate_parallel, spines_vf, chunksize=chunk_size)
+                
                 for spine_name, result in zip(spines, results):
+                    if isinstance(result, ExceptionWrapper):
+                        print(result)
+                        print(spine_name)
+                        print()
+                        continue
                     metrics[spine_name] = []
                     for metric_name in metric_names:
                         metrics[spine_name].append(create_metric_by_name(metric_name))
@@ -110,7 +119,7 @@ class SpineMetricDataset:
             print(f"run in one process")
             self.spine_meshes = spine_meshes
             metrics = {}
-            for (spine_name, spine_mesh) in spine_meshes.items():
+            for (spine_name, spine_mesh) in tqdm.tqdm(spine_meshes.items(), total=len(spine_meshes)):
                 metrics[spine_name] = calculate_metrics(spine_mesh, metric_names, params)
         self.__init__(metrics)
 
@@ -176,6 +185,8 @@ class SpineMetricDataset:
             return PCA(n_components).fit_transform(self.as_array())
         elif method == "tsne":
             return TSNE(n_components, init="pca", random_state=0).fit_transform(self.as_array())
+        elif method == "umap":
+            return umap.UMAP(n_components=n_components).fit_transform(self.as_array())
         else:
             raise NotImplemented(f"method {method} is not supported")
 
@@ -224,6 +235,8 @@ class SpineMetricDataset:
                 # extract each metric
                 metrics = []
                 for metric_name in row.keys():
+                    if metric_name == "OldChordDistribution":
+                        value_str = [row[metric_name], *row[None]]
                     value_str = row[metric_name]
                     try:
                         metric = create_metric_by_name(metric_name)
