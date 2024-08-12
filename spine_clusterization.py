@@ -34,20 +34,6 @@ class SpineClusterizer(SpineFitter, ABC):
     def num_of_clusters(self) -> int:
         return self.grouping.num_of_groups
 
-    # def score(self) -> float:
-    #     # TODO: change nan to something sensical
-    #     if self.num_of_clusters < 2 or self.sample_size - 1 < self.num_of_clusters:
-    #         return float("nan")
-    #     return self._score(self._data, self._labels, metric=self.metric)
-    #
-    # def _score(self, data, labels, metric):
-    #     return silhouette_score(data, labels, metric=metric)
-
-    # def _show(self, groups_to_show: Set[int] = None) -> None:
-    #     super()._show(groups_to_show)
-    #     # plt.title(f"Number of clusters: {self.num_of_clusters}, score: {self.score():.3f}")
-    #     plt.title(f"Number of clusters: {self.num_of_clusters}")
-
 
 class SKLearnSpineClusterizer(SpineClusterizer, ABC):
     _fit_data: object
@@ -109,69 +95,10 @@ class DBSCANSpineClusterizer(SKLearnSpineClusterizer):
         self.min_samples = min_samples
         self.eps = eps
 
-    # def score(self) -> float:
-    #     # TODO: change nan to something sensical
-    #     if self.num_of_outlier / self.sample_size > 0.69 or self.num_of_clusters < 2 or self.sample_size - self.num_of_outlier - 1 < self.num_of_clusters:
-    #     # if self.num_of_clusters < 2 or self.sample_size - self.num_of_outlier - 1 < self.num_of_clusters:
-    #         return float("nan")
-    #     indices_to_delete = np.argwhere(np.asarray(labels) == -1)
-    #     filtered_data = np.delete(self._data, indices_to_delete, 0)
-    #     filtered_labels = np.delete(self._labels, indices_to_delete, 0)
-    #     return self._score(filtered_data, filtered_labels, self.metric)
-
-    # def _score(self, data, labels, metric):
-    #     neigh = NearestNeighbors(n_neighbors=2, metric=metric)
-    #     nbrs = neigh.fit(self._data)
-    #     distances, indices = nbrs.kneighbors(self._data)
-    #     distances = -np.sort(-distances, axis=0)
-    #     distances = distances[:, 1]
-    #     for i in range(len(distances)):
-    #         if self.eps > distances[i]:
-    #             return i
-    #     return len(distances)
-
     def _sklearn_fit(self, data: np.array) -> object:
         self._clusterizer = DBSCAN(eps=self.eps, min_samples=self.min_samples, metric=self.metric)
         clusterized = self._clusterizer.fit(data)
         return clusterized
-
-    # def _show(self, groups_to_show: Set[int] = None) -> None:
-    #     core_samples_mask = np.zeros_like(self._fit_data.labels_, dtype=bool)
-    #     core_samples_mask[self._fit_data.core_sample_indices_] = True
-    #
-    #     # Black removed and is used for outlier instead.
-    #     colors = self.get_colors()
-    #
-    #     for k, col in zip(set(self._labels), colors):
-    #         class_member_mask = self._labels == k
-    #
-    #         xy = self.reduced_data[class_member_mask & core_samples_mask]
-    #         if xy.size > 0:
-    #             plt.plot(
-    #                 xy[:, 0],
-    #                 xy[:, 1],
-    #                 "o",
-    #                 markerfacecolor=tuple(col),
-    #                 markeredgecolor="k",
-    #                 markersize=14,
-    #                 label=f"{k}"
-    #             )
-    #
-    #         xy = self.reduced_data[class_member_mask & ~core_samples_mask]
-    #         if xy.size > 0:
-    #             plt.plot(
-    #                 xy[:, 0],
-    #                 xy[:, 1],
-    #                 "o",
-    #                 markerfacecolor=tuple(col),
-    #                 markeredgecolor="k",
-    #                 markersize=6,
-    #                 label=f"{k}"
-    #             )
-    #     # plt.title(f"Number of clusters: {self.num_of_clusters}, score: {self.score():.3f}")
-    #     plt.title(f"Number of clusters: {self.num_of_clusters}")
-    #     plt.legend(loc="upper right")
-
 
 class KMeansSpineClusterizer(SKLearnSpineClusterizer):
     _num_of_clusters: int
@@ -183,6 +110,3 @@ class KMeansSpineClusterizer(SKLearnSpineClusterizer):
     def _sklearn_fit(self, data: np.array) -> object:
         self._clusterizer = KMeans(n_clusters=self._num_of_clusters, random_state=0)
         return self._clusterizer.fit(data)
-
-    # def _score(self, data, labels, metric):
-    #     return self._clusterizer.inertia_

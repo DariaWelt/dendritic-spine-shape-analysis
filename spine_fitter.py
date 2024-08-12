@@ -77,6 +77,10 @@ class SpineGrouping:
             self._show_method = method
 
     @property
+    def show_method(self) -> str:
+        return self._show_method
+
+    @property
     def num_of_groups(self) -> int:
         return len(self.groups)
 
@@ -289,7 +293,7 @@ class SpineGrouping:
                     "o",
                     markerfacecolor=tuple(color),
                     markeredgecolor="k",
-                    markersize=14,
+                    markersize=6,
                     label=f"{group_label}"
                 )
 
@@ -304,10 +308,12 @@ class SpineGrouping:
         reduced_data = metrics.as_array()
         name_to_index = {name: i for i, name in enumerate(metrics.ordered_spine_names)}
 
-        for (group_label, group) in self.groups.items():
-            color = colors[group_label] if group_label in groups_to_show else [
-                0.69, 0.69, 0.69, 1]
-            show_group(group_label, group, color)
+        for group_label in set(self.groups.keys()).difference(groups_to_show):
+            show_group(group_label, self.groups[group_label], [0.69, 0.69, 0.69, 1])
+
+        for group_label in groups_to_show:
+            show_group(group_label, self.groups[group_label], colors[group_label])
+            
         show_group(self.outliers_label, self.outlier_group, (0, 0, 0, 1))
 
         plt.title(f"Number of groups: {self.num_of_groups}")
@@ -336,7 +342,7 @@ class SpineGrouping:
 
         return SpineGrouping(new_samples, new_groups)
 
-    def intersection_ratios(self, other: "SpineGrouping", normalize: bool = True) -> IntersectionRatios:
+    def intersection_ratios(self, other: "SpineGrouping") -> IntersectionRatios:
         intersections = IntersectionRatios()
         for i, (self_label, self_group) in enumerate(self.groups_with_outliers.items()):
             if len(self_group) == 0:
@@ -347,13 +353,7 @@ class SpineGrouping:
                     value = 0
                 else:
                     value = len(self_group.intersection(other_group)) / len(self_group)
-                    if normalize:
-                        value /= len(other_group)
                 intersections[self_label][other_label] = value
-            if normalize:
-                intersection_sum = sum(value for value in intersections[self_label].values())
-                for other_label in intersections[self_label].keys():
-                    intersections[self_label][other_label] /= intersection_sum
         return intersections
 
     def get_representative_samples(self, metrics: SpineMetricDataset,
@@ -400,29 +400,30 @@ class SpineGrouping:
                 for metric_name, metric_distribution in name_distribution:
                     writer.writerow([metric_name] + list(metric_distribution))
 
-    def save_reduced(self, metrics: SpineMetricDataset, filename: str, method: str = "pca") -> None:
+    def save_reduced(self, metrics: SpineMetricDataset, filename: str, manual_classification: "SpineGrouping" = None, method: str = "pca") -> None:
         reduced_metrics = metrics.reduce(2, method)
-
-
-        with open(filename, "w") as file:
-            for label, group in self.groups.items():
-                # write grouping label
-                file.write(f"{label}\n\n")
-
-                # only consider spines from this group
-                reduced_metrics_subset = reduced_metrics.get_spines_subset(group)
-                
-                # write header
-                writer = csv.DictWriter(file, [method] + reduced_metrics_subset.ordered_spine_names)
+        coord_names = reduced_metrics.metric_names
+        with open(filename, "w", newline='') as file:
+            if manual_classification is None:
+                writer = csv.DictWriter(file, ['cluster', 'spine name'] + coord_names)
                 writer.writeheader()
+                for label, group in self.groups.items():
+                    for spine_name in reduced_metrics.get_spines_subset(group).ordered_spine_names:
+                        column = {'cluster': label, 'spine name': spine_name}
+                        for coord_name in coord_names:
+                            column[coord_name] = reduced_metrics.column(coord_name)[spine_name].value
+                        writer.writerow(column)
+            else:
+                writer = csv.DictWriter(file, ['cluster', 'spine name', 'group'] + coord_names)
+                writer.writeheader()
+                for label, group in self.groups.items():
+                    for spine_name in reduced_metrics.get_spines_subset(group).ordered_spine_names:
+                        column = {'cluster': label, 'spine name': spine_name, 'group': manual_classification.get_group(spine_name)}
+                        for coord_name in coord_names:
+                            column[coord_name] = reduced_metrics.column(coord_name)[spine_name].value
+                        writer.writerow(column)
+                
 
-                # write pca coordinates for every spine
-                for reduced_coord_name in reduced_metrics_subset.metric_names:
-                    column: Dict = reduced_metrics_subset.column(reduced_coord_name)
-                    for key, value in column.items():
-                        column[key] = value.value
-                    column[method] = reduced_coord_name
-                    writer.writerow(column)
 
 
 class SpineFitter(ABC):

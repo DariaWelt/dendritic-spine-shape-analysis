@@ -407,7 +407,6 @@ class SpinePreview:
                                       for metric in self.metrics]
 
     def _make_metrics_panel(self) -> widgets.Widget:
-        # TODO: figure out scrolling
         self._metrics_box = widgets.VBox([], layout=widgets.Layout())
         self._fill_metrics_box()
 
@@ -474,7 +473,6 @@ class SelectableSpinePreview(SpinePreview):
         new_segm = correct_segmentation(self._initial_segmentation,
                                         self._dendrite_mesh, correction_value)
         meshes = get_spine_meshes(self._dendrite_mesh, new_segm)
-        # TODO: handle spine-splitting through correction slider
         if len(meshes) != 1:
             print(f"Oops, split this spine into {len(meshes)} spines.")
         self._set_spine_mesh(meshes[0], _mesh_to_v_f(meshes[0]),
@@ -805,16 +803,51 @@ def select_connected_component_widget(binary_image: np.ndarray) -> widgets.Widge
     return widgets.interactive(show_component, label_index=label_index_slider)
 
 
+def show_reference_space(grouping: SpineGrouping, reference_grouping: SpineGrouping, metrics_dataset: SpineMetricDataset):
+    clusters = list(grouping.group_labels)
+    inspectors = {}
+
+    for i, name in enumerate(clusters):
+        cur_spines = grouping.groups[name]
+        inspectors[i] = widgets.VBox([reference_grouping.get_spines_subset(cur_spines).show(metrics_dataset)])
+
+    def show_inspector(group):
+        display(inspectors[group])
+        
+    inspector_dropdown = widgets.Dropdown(
+        options=[(name, i) for i, name in enumerate(clusters)])
+
+    return widgets.interactive(show_inspector, group=inspector_dropdown)
+
+
+def show_class_in_space(reference_grouping: SpineGrouping, metrics_dataset: SpineMetricDataset):
+    clusters = list(reference_grouping.group_labels)
+    inspectors = {}
+
+    for i, name in enumerate(clusters):
+        inspectors[i] = widgets.VBox([reference_grouping.show(metrics_dataset, groups_to_show={name})])
+
+    def show_inspector(group):
+        display(inspectors[group])
+
+    inspector_dropdown = widgets.Dropdown(
+        options=[(name, i) for i, name in enumerate(clusters)])
+
+    return widgets.interactive(show_inspector, group=inspector_dropdown)
+
+
 def grouping_in_3d_widget(grouping: SpineGrouping,
                           spine_dataset: SpineMeshDataset,
                           metrics_dataset: SpineMetricDataset,
                           distance_metric=None) -> widgets.Widget:
-    # TODO: show only representative spines?
     spine_previews_by_cluster = {label: {} for label in grouping.group_labels}
+    spine_groups = {}
     colors = grouping.colors
 
     def show_spine_by_group_label(label: str):
-        def show_spine_by_name(spine_name: str):
+
+        def show_spine_by_name(spine_index: int):
+            spine_name = spine_groups[label][spine_index]
             if spine_name not in spine_previews_by_cluster[label]:
                 preview = SpinePreview(spine_dataset.spine_meshes[spine_name],
                                        spine_dataset.spine_v_f[spine_name],
@@ -828,9 +861,14 @@ def grouping_in_3d_widget(grouping: SpineGrouping,
             # this sacrifices saving camera position but oh well
             spine_previews_by_cluster[label][spine_name].create_views()
             display(spine_previews_by_cluster[label][spine_name].widget)
-        spine_name_dropdown = widgets.Dropdown(options=grouping.get_sorted_group(label),
-                                               description="Spine:")
-        display(widgets.interactive(show_spine_by_name, spine_name=spine_name_dropdown))
+
+        if label not in spine_groups:
+            spine_groups[label] = grouping.get_sorted_group(label)
+
+        spine_index_slider = widgets.IntSlider(min=0, max=len(spine_groups[label]) - 1)
+        navigation_buttons = _make_navigation_widget(spine_index_slider)
+        display(navigation_buttons)
+        display(widgets.interactive(show_spine_by_name, spine_index=spine_index_slider))
 
     group_label_dropdown = widgets.Dropdown(options=grouping.sorted_group_labels,
                                             description="Group:")
@@ -1012,34 +1050,34 @@ def clustering_experiment_widget(spine_metrics: SpineMetricDataset,
             clusterizer.grouping.save(clusterization_save_path)
             print(f"Saved clusterization to \"{clusterization_save_path}\".")
 
-            if dim_reduction:
-                reduced_save_path = save_path + f"reduced_{dim_reduction}.csv"
-                clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, dim_reduction)
+            reduced_save_path = save_path + f"clustering_coordinates_reduced_{clusterizer.grouping.show_method}.csv"
+            if classification is None:
+                clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, method=clusterizer.grouping.show_method)
+                print(f"Saved reduced coordinates to \"{reduced_save_path}\".")
+            else:
+                clusterizer.grouping.save_reduced(spine_metrics, reduced_save_path, classification,
+                                                  clusterizer.grouping.show_method)
                 print(f"Saved reduced coordinates to \"{reduced_save_path}\".")
 
-            if classification:
                 classification_save_path = save_path + "classification.json"
                 classification.save(classification_save_path)
                 print(f"Saved classification to \"{classification_save_path}\".")
 
                 if dim_reduction:
                     classification_save_reduced_path = save_path + f"classification_reduced_{dim_reduction}.csv"
-                    classification.save_reduced(spine_metrics, classification_save_reduced_path, dim_reduction)
+                    classification.save_reduced(spine_metrics, classification_save_reduced_path, classification, dim_reduction)
                     print(f"Saved classification reduced coordinates to \"{classification_save_reduced_path}\".")
+
+                clust_over_class_save_path = save_path + "intersection_clust_over_class.csv"
+                clusterizer.grouping.intersection_ratios(classification).save(clust_over_class_save_path)
+                class_over_clust_save_path = save_path + "intersection_class_over_clust.csv"
+                classification.intersection_ratios(clusterizer.grouping).save(class_over_clust_save_path)
+                print(f'Saved intersection ratios to "{clust_over_class_save_path}", '
+                      f'"{class_over_clust_save_path}".')
 
             distribution_save_path = save_path + "metric_distributions.csv"
             clusterizer.grouping.save_metric_distribution(every_spine_metrics, distribution_save_path)
             print(f"Saved metric distributions to \"{distribution_save_path}\".")
-
-            if classification:
-                clust_over_class_save_path = save_path + "intersection_clust_over_class.csv"
-                clusterizer.grouping.intersection_ratios(classification, False).save(clust_over_class_save_path)
-                class_over_clust_save_path = save_path + "intersection_class_over_clust.csv"
-                classification.intersection_ratios(clusterizer.grouping, False).save(class_over_clust_save_path)
-                class_over_clust_norm_save_path = save_path + "intersection_class_over_clust_norm.csv"
-                classification.intersection_ratios(clusterizer.grouping, True).save(class_over_clust_norm_save_path)
-                print(f'Saved intersection ratios to "{clust_over_class_save_path}", '
-                      f'"{class_over_clust_save_path}", "{class_over_clust_norm_save_path}".')
 
         export_button = widgets.Button(description="Export Clusterization")
         export_button.on_click(export_clusterization)
@@ -1207,8 +1245,8 @@ def manual_classification_widget(meshes: SpineMeshDataset,
                          spine_classification])
 
 
-def intersection_ratios_mean_distance(a: SpineGrouping, b: SpineGrouping, normalize: bool = True) -> float:
-    intersections = a.intersection_ratios(b, normalize)
+def intersection_ratios_mean_distance(a: SpineGrouping, b: SpineGrouping) -> float:
+    intersections = a.intersection_ratios(b)
 
     a_labels = list(intersections.keys())
     b_labels = list(b.group_labels_with_outliers)
@@ -1226,11 +1264,11 @@ def intersection_ratios_mean_distance(a: SpineGrouping, b: SpineGrouping, normal
     return mean_distance
 
 
-def grouping_intersection_widget(a: SpineGrouping, b: SpineGrouping, normalize: bool = True) -> widgets.Widget:
-    intersections = a.intersection_ratios(b, normalize)
+def grouping_intersection_widget(a: SpineGrouping, b: SpineGrouping) -> widgets.Widget:
+    intersections = a.intersection_ratios(b)
 
     # calculate mean distance
-    mean_distance = intersection_ratios_mean_distance(a, b, normalize)
+    mean_distance = intersection_ratios_mean_distance(a, b)
     mean_distance_label = widgets.Label(f"Mean distance b/w distributions: {mean_distance:.2f}")
 
     # generate pie charts
@@ -1244,6 +1282,7 @@ def grouping_intersection_widget(a: SpineGrouping, b: SpineGrouping, normalize: 
             plt.bar(range(len(a_intersection)), list(a_intersection.values()),
                     tick_label=list(a_intersection.keys()),
                     color=[b_colors[label] for label in a_intersection.keys()])
+            plt.ylim(0, 1)
             plt.show()
             # remove zero-length segments
             for key, value in list(a_intersection.items()):
@@ -1453,7 +1492,7 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
                             reference_grouping: SpineGrouping) -> widgets.Widget:
     inspectors = {}
     inspector_names = ["Metric Distribution", "Reference Grouping Intersection",
-                       "View Spines in 3D", "Representative Spines"]
+                       "View Spines in 3D", "Reference Grouping visualisation", "Representative Spines"]
 
     def generate_inspector(inspector_index) -> widgets.Widget:
         if inspector_index == 0:
@@ -1462,12 +1501,10 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
             if reference_grouping is not None:
                 intersection_widgets = [
                     reference_grouping.show(metrics_dataset),
-                    widgets.Label("-- Clusters Over Classes --"),
-                    grouping_intersection_widget(grouping, reference_grouping, False),
-                    widgets.Label("-- Classes Over Clusters, Non-normalized --"),
-                    grouping_intersection_widget(reference_grouping, grouping, False),
-                    widgets.Label("-- Clusters Over Classes, Normalized --"),
-                    grouping_intersection_widget(reference_grouping, grouping, True)
+                    widgets.Label("-- Group distribution in Clusters --"),
+                    grouping_intersection_widget(grouping, reference_grouping),
+                    widgets.Label("-- Cluster distribution in Groups, Non-normalized --"),
+                    grouping_intersection_widget(reference_grouping, grouping)
                 ]
             else:
                 intersection_widgets = [widgets.Label("No reference grouping provided!")]
@@ -1475,6 +1512,8 @@ def inspect_grouping_widget(grouping: SpineGrouping, spine_dataset: SpineMeshDat
         elif inspector_index == 2:
             return grouping_in_3d_widget(grouping, spine_dataset, metrics_dataset)
         elif inspector_index == 3:
+            return show_reference_space(grouping, reference_grouping, metrics_dataset)
+        elif inspector_index == 4:
             return representative_spines_widget(grouping, spine_dataset, metrics_dataset)
 
     def show_inspector(inspector_index):

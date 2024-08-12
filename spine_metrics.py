@@ -159,7 +159,6 @@ class SpineMetricDataset:
                           metric_names: List[str],
                           params: List[Dict] = None,
                           recalculate: bool = True) -> None:
-        # TODO: handle metric recalculation
         self.spine_meshes = spine_meshes
         metrics = {}
         for (spine_name, spine_mesh) in spine_meshes.items():

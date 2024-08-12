@@ -105,6 +105,7 @@ def get_surface_points(image: np.ndarray,
     # image = np.pad(image, 1)
 
     # find surface points
+    image = np.pad(image, 1)
     erosion = binary_erosion(image).astype(image.dtype) * 255
     edges = image - erosion
 
@@ -183,8 +184,7 @@ def find_longest_path(graph: nx.Graph) -> List:
     # build simplified graph
     simplified = graph.copy()
     for node in graph.nodes():
-        if simplified.degree[node] == 2:
-            neighbours = np.asarray(simplified.neighbors(node))
+        if len([k for k in simplified.neighbors(node)]) == 2:
             [u, v] = simplified.neighbors(node)
             simplified.add_edge(u, v)
             simplified.remove_node(node)
